@@ -12,7 +12,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check that the tag matches versionName
         run: |
           version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
@@ -20,11 +20,11 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version in app/build.gradle.kts"
             exit 1
           fi
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Install Android SDK packages
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
       - name: Restore signing key
@@ -44,7 +44,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "wizualizator-ramy-$GITHUB_REF_NAME.apk"
           cp docs/instrukcja.html "instrukcja-$GITHUB_REF_NAME.html"
           cp docs/instrukcja-en.html "manual-en-$GITHUB_REF_NAME.html"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Wizualizator ramy ${{ github.ref_name }}
           generate_release_notes: true
