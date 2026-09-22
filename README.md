@@ -2,6 +2,12 @@
 
 Repozytorium natywnej aplikacji Android do przygotowywania zdjęć kroków montażowych w wymiarach podanych w milimetrach oraz arkusza PDF do wycięcia. Szczegółowy zakres: [PRD.md](PRD.md). Instrukcja obsługi ze zrzutami ekranu: [docs/instrukcja.html](docs/instrukcja.html) (po angielsku: [docs/instrukcja-en.html](docs/instrukcja-en.html)). Gradle kopiuje oba pliki do APK przy budowaniu, więc w aplikacji (logo → O aplikacji → Instrukcja obsługi) jest zawsze ta sama wersja co w `docs/`.
 
+## Pobieranie
+
+Gotowy, podpisany APK każdej wersji jest w [Releases](https://github.com/Git-Jacob-bit/visualizer_apk/releases/latest). Na telefonie pobierz plik `wizualizator-ramy-vX.Y.Z.apk`, otwórz go i zezwól na instalację z tego źródła. Aktualizacje wygodnie śledzi aplikacja [Obtainium](https://github.com/ImranR98/Obtainium) (dodaj adres tego repozytorium).
+
+Wersję debug instalowaną z komputera trzeba odinstalować przed instalacją wersji z Releases (inny podpis), co usuwa lokalne projekty.
+
 ## Stan prototypu
 
 Wersja 0.8.0 obsługuje projekty zapisane lokalnie jako JSON i zdjęcia, tworzenie i usuwanie projektów, zmianę ich nazw, aparat z kadrem o proporcji wynikającej z wymiarów w mm, opcjonalne PN i kroki, korektę jasności/kontrastu, wybór narożników oznaczeń oraz wielostronicowy PDF A4 w formie wycinanki. Projekty mają okładki z własnych zdjęć, galeria równą siatkę kafelków, a formularz wymiarów podgląd proporcji i szybki wybór rozmiaru. Edytor ma ograniczony do ekranu obszar podglądu oraz osobne narzędzia: Dane, Układ, Światło i Plik. W orientacji poziomej panel edycji przenosi się obok zdjęcia. Oznaczenia w podglądzie korzystają z fizycznych proporcji tekstu użytych w PDF. Jasny i ciemny motyw można przełączyć z górnego paska. Wybrany motyw zapisuje się na telefonie. Dodawanie zdjęcia prowadzi przez trzy kroki (Wymiar → Zdjęcie → Opis) z ekranem „Użyj / Powtórz” po zrobieniu zdjęcia i opcjonalną siatką 3 × 3 w wizjerze. Galeria pokazuje prawdziwe proporcje zdjęć, a przejścia między ekranami, zmiana proporcji kadru i przesuwanie oznaczeń są animowane. W aparacie dotknięcie kadru ustawia i blokuje ostrość oraz ekspozycję, a przybliżenie działa gestem lub przyciskami 1× / 2×. Edytor ma zakładkę Kadr (przybliżenie i przesunięcie w stałym wymiarze wydruku, z przeliczeniem DPI) oraz automatyczną korektę tonów. Ustawienia drukarki (rozjaśnienie tonów średnich, wyostrzanie w rozdzielczości druku, druk czarno-biały) dotyczą podglądu i PDF; strona testowa PDF pomaga dobrać rozjaśnienie do drukarki. Cała aplikacja działa po polsku i angielsku (przełącznik PL/EN obok motywu; przy pierwszym uruchomieniu według języka telefonu), łącznie z PDF i instrukcją. Lista projektów wita użytkownika zależnie od pory dnia. Przy pierwszym uruchomieniu pojawia się ekran powitalny, a każdy ekran ma objaśnienie z podświetlaniem elementów (przycisk ? powtarza je) oraz podpowiedzi kontekstowe, np. przy małym kadrze, niskim DPI czy nachodzących oznaczeniach. Okno O aplikacji (dotknięcie logo) pokazuje wersję, instrukcję i ustawienia wskazówek. Ikona aplikacji (żółte tło, karty kroków) mieści się w strefie bezpiecznej każdej maski launchera, także okrągłej.
@@ -61,3 +67,12 @@ GitHub CLI (`gh`) jest obecne, ale jego zapisane uwierzytelnienie wymaga odnowie
 - [Instalacja Android Studio](https://developer.android.com/studio/install)
 - [Konfiguracja Jetpack Compose](https://developer.android.com/develop/ui/compose/setup)
 - [CameraX](https://developer.android.com/jetpack/androidx/releases/camera)
+
+## Wydawanie wersji
+
+1. Podnieś `versionCode` i `versionName` w `app/build.gradle.kts` i zrób commit.
+2. Utwórz i wypchnij tag zgodny z wersją: `git tag v0.8.1 && git push origin v0.8.1`.
+3. Workflow **Release** zbuduje podpisany APK i utworzy wydanie z plikiem APK i instrukcjami. Każdy push do `main` buduje też APK debug dostępny jako artefakt workflow **Build**.
+
+Klucz podpisu leży poza repozytorium (`~/keystores/visualizer_apk-release.jks` + plik `.properties` z hasłami) i jako sekrety repozytorium `SIGNING_*`. Zrób jego kopię zapasową: bez tego klucza nie da się wydać aktualizacji instalowalnej na istniejącą wersję.
+

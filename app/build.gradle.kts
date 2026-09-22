@@ -1,4 +1,18 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+// Release signing: CI passes the key through environment variables (GitHub secrets); locally the same values
+// are read from ~/keystores/visualizer_apk-release.properties. The keystore itself never enters the repository.
+val signing: Map<String, String> = run {
+    val keys = listOf("KEYSTORE_FILE", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
+    val fromEnv = keys.associateWith { System.getenv("SIGNING_$it").orEmpty() }
+    if (fromEnv.values.all { it.isNotEmpty() }) fromEnv else {
+        val file = File(System.getProperty("user.home"), "keystores/visualizer_apk-release.properties")
+        if (!file.exists()) emptyMap() else Properties().apply { file.inputStream().use(::load) }
+            .let { props -> keys.associateWith { props.getProperty(it).orEmpty() } }
+            .takeIf { it.values.all(String::isNotEmpty) } ?: emptyMap()
+    }
+}
 
 plugins {
     id("com.android.application")
@@ -18,9 +32,19 @@ android {
         versionName = "0.8.0"
     }
 
+    signingConfigs {
+        if (signing.isNotEmpty()) create("release") {
+            storeFile = file(signing.getValue("KEYSTORE_FILE"))
+            storePassword = signing.getValue("KEYSTORE_PASSWORD")
+            keyAlias = signing.getValue("KEY_ALIAS")
+            keyPassword = signing.getValue("KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
