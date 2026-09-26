@@ -223,7 +223,7 @@ private fun DrawScope.drawSheetIllustration(t: Float, outline: Color) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AboutSheet(tutorial: TutorialController?, onManual: () -> Unit, onWelcome: () -> Unit, onDismiss: () -> Unit) {
+internal fun AboutSheet(tutorial: TutorialController?, onManual: () -> Unit, onChangelog: () -> Unit, onWelcome: () -> Unit, onDismiss: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     var resetDone by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.surface) {
@@ -240,6 +240,7 @@ internal fun AboutSheet(tutorial: TutorialController?, onManual: () -> Unit, onW
             Text(tr("Zdjęcia kroków montażu w wymiarach podanych w milimetrach i arkusz PDF do wycięcia. Wszystko zostaje na telefonie.", "Photos of assembly steps at sizes given in millimetres, and a PDF sheet to cut out. Everything stays on the phone."),
                 fontSize = 14.sp, lineHeight = 20.sp, color = colors.onSurfaceVariant)
             StudioAction(tr("Instrukcja obsługi", "User manual"), StudioSymbol.Info, onManual, Modifier.fillMaxWidth())
+            StudioAction(tr("Historia zmian", "Changelog"), StudioSymbol.Sparkle, onChangelog, Modifier.fillMaxWidth(), secondary = true)
             HorizontalDivider(color = colors.outlineVariant)
             if (tutorial != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

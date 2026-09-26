@@ -52,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 private const val MAX_CROP_ZOOM = 4f
 
@@ -64,6 +65,8 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
     var contrast by rememberSaveable(photo.id) { mutableStateOf(photo.contrast) }
     var pnCorner by rememberSaveable(photo.id) { mutableStateOf(photo.pnCorner) }
     var stepsCorner by rememberSaveable(photo.id) { mutableStateOf(photo.stepsCorner) }
+    var pnScale by rememberSaveable(photo.id) { mutableStateOf(photo.pnScale) }
+    var stepsScale by rememberSaveable(photo.id) { mutableStateOf(photo.stepsScale) }
     var cropZoom by rememberSaveable(photo.id) { mutableStateOf(photo.cropZoom) }
     var cropX by rememberSaveable(photo.id) { mutableStateOf(photo.cropX) }
     var cropY by rememberSaveable(photo.id) { mutableStateOf(photo.cropY) }
@@ -71,7 +74,7 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
     val scope = rememberCoroutineScope()
     var discard by remember { mutableStateOf(false) }
     val valid = pn.isBlank() || pn.matches(Regex("[0-9]{10}"))
-    val preview = photo.copy(pn = pn, steps = steps, brightness = brightness, contrast = contrast, pnCorner = pnCorner, stepsCorner = stepsCorner, cropZoom = cropZoom, cropX = cropX, cropY = cropY)
+    val preview = photo.copy(pn = pn, steps = steps, brightness = brightness, contrast = contrast, pnCorner = pnCorner, stepsCorner = stepsCorner, pnScale = pnScale, stepsScale = stepsScale, cropZoom = cropZoom, cropX = cropX, cropY = cropY)
     val dirty = preview != photo
     val focus = LocalFocusManager.current
     val dpi by produceState<Int?>(null, file.path, photo.widthMm, photo.heightMm) {
@@ -145,11 +148,24 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
                         }
                         2 -> {
                             val clash = pn.isNotBlank() && steps.isNotBlank() && pnCorner == stepsCorner
-                            CornerPicker(tr("Numer PN", "PN number"), pnCorner, Color.White) { pnCorner = it }
+                            val pnMm = labelHeightMm(pn, photo.widthMm, pnScale)
+                            val stepsMm = labelHeightMm(steps, photo.widthMm, stepsScale)
+                            // A label that is already as wide as the photo cannot grow further, so the tiles follow the
+                            // printed size rather than the chosen percentage.
+                            val pnShown = pnMm / labelHeightMm(pn, photo.widthMm, 1f)
+                            val stepsShown = stepsMm / labelHeightMm(steps, photo.widthMm, 1f)
+                            val overflow = (pn.isNotBlank() && pnMm > photo.heightMm) || (steps.isNotBlank() && stepsMm > photo.heightMm)
+                            LabelLayout(tr("Numer PN", "PN number"), pnCorner, pnScale, pnMm, pnShown, Color.White, { pnCorner = it }, { pnScale = it })
                             HorizontalDivider(color = colors.outlineVariant)
-                            CornerPicker(tr("Kroki", "Steps"), stepsCorner, LabelYellow) { stepsCorner = it }
-                            Text(if (clash) tr("Oznaczenia zajmują ten sam narożnik.", "Both labels are in the same corner.") else tr("Wybierz narożnik dla każdego oznaczenia.", "Pick a corner for each label."), fontSize = 12.sp,
-                                color = if (clash) colors.error else colors.onSurfaceVariant)
+                            LabelLayout(tr("Kroki", "Steps"), stepsCorner, stepsScale, stepsMm, stepsShown, LabelYellow, { stepsCorner = it }, { stepsScale = it })
+                            Text(
+                                when {
+                                    overflow -> tr("Oznaczenie jest wyższe niż zdjęcie — zmniejsz je.", "The label is taller than the photo — make it smaller.")
+                                    clash -> tr("Oznaczenia zajmują ten sam narożnik.", "Both labels are in the same corner.")
+                                    else -> tr("Wybierz narożnik i wielkość każdego oznaczenia.", "Pick a corner and a size for each label.")
+                                },
+                                fontSize = 12.sp, lineHeight = 18.sp, color = if (clash || overflow) colors.error else colors.onSurfaceVariant,
+                            )
                         }
                         3 -> {
                             AdjustmentSlider(tr("Jasność", "Brightness"), "${(brightness * 100).toInt()}%", brightness, -0.4f..0.4f) { brightness = it }
@@ -294,9 +310,20 @@ private fun AdjustmentSlider(title: String, valueLabel: String, value: Float, ra
     }
 }
 
+// One label: where it sits on the photo and how big it prints. The corner tiles show the chosen size, so the
+// slider, the tiles and the photo preview all move together.
 @Composable
-private fun CornerPicker(title: String, corner: String, marker: Color, onCorner: (String) -> Unit) {
+private fun LabelLayout(title: String, corner: String, scale: Float, heightMm: Float, printed: Float, marker: Color, onCorner: (String) -> Unit, onScale: (Float) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CornerPicker(title, corner, printed, marker, onCorner)
+        LabelSizeSlider(title, scale, heightMm, printed, marker, onScale)
+    }
+}
+
+@Composable
+private fun CornerPicker(title: String, corner: String, scale: Float, marker: Color, onCorner: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val shown by animateFloatAsState(scale, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow), label = "markerScale")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -312,8 +339,10 @@ private fun CornerPicker(title: String, corner: String, marker: Color, onCorner:
                     .clickable(interactionSource = source, indication = null) { onCorner(position) }, contentAlignment = Alignment.Center) {
                     // The marker keeps its print colour (white PN, yellow steps); only the tile shows selection.
                     Canvas(Modifier.size(26.dp, 19.dp)) {
-                        val width = size.width * 0.42f
-                        val height = size.height * 0.42f
+                        // The tile mirrors the printed proportions: a bigger label fills more of the photo.
+                        val portion = 0.42f * (0.55f + 0.45f * shown)
+                        val width = size.width * portion
+                        val height = size.height * portion
                         val offset = Offset(if (position.endsWith("R")) size.width - width else 0f, if (position.startsWith("B")) size.height - height else 0f)
                         drawRect(marker, offset, Size(width, height))
                         drawRect(StudioInk, offset, Size(width, height), style = Stroke(0.8.dp.toPx()))
@@ -323,6 +352,53 @@ private fun CornerPicker(title: String, corner: String, marker: Color, onCorner:
             }
         }
     }
+}
+
+@Composable
+private fun LabelSizeSlider(title: String, scale: Float, heightMm: Float, printed: Float, marker: Color, onScale: (Float) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val lang = LocalLang.current
+    val sizeLabel = tr("Wielkość", "Size")
+    Column {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(sizeLabel, fontSize = 13.sp, color = colors.onSurfaceVariant)
+            Spacer(Modifier.weight(1f))
+            Text("${(scale * 100).roundToInt()}% · ${lang.decimal(heightMm)} mm", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                color = colors.primary, style = TabularNumbers)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LabelSizeSample(marker, printed)
+            // A clean track, but the value still lands on whole 5% steps.
+            Slider(scale, { onScale((it * 20f).roundToInt() / 20f) }, Modifier.weight(1f).semantics { contentDescription = "$title: $sizeLabel" },
+                valueRange = MIN_LABEL_SCALE..MAX_LABEL_SCALE)
+        }
+    }
+}
+
+// A miniature of the printed label chip, growing with the slider.
+@Composable
+private fun LabelSizeSample(marker: Color, scale: Float) {
+    val shown by animateFloatAsState(scale, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow), label = "sampleScale")
+    Canvas(Modifier.size(34.dp, 26.dp)) {
+        val height = (size.height * 0.3f * shown).coerceAtMost(size.height)
+        val width = (height * 2.4f).coerceAtMost(size.width)
+        val top = (size.height - height) / 2f
+        val left = (size.width - width) / 2f
+        drawRect(marker, Offset(left, top), Size(width, height))
+        drawRect(StudioInk, Offset(left, top), Size(width, height), style = Stroke(0.9.dp.toPx()))
+    }
+}
+
+// Printed height of a label in millimetres, the way the PDF draws it: 10 pt monospace at 100%, shrunk when the
+// text would not fit the photo's width — so the readout stops growing exactly where the label stops growing.
+private fun labelHeightMm(text: String, widthMm: Float, scale: Float): Float {
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        textSize = 10f * scale
+    }
+    val widthPt = widthMm * 72f / 25.4f
+    while (text.isNotBlank() && paint.measureText(text) > widthPt - 2 * labelPadding(paint.textSize) && paint.textSize > 5.5f) paint.textSize -= 0.5f
+    return (paint.fontMetrics.descent - paint.fontMetrics.ascent + 2 * labelPadding(paint.textSize)) * 25.4f / 72f
 }
 
 @Composable

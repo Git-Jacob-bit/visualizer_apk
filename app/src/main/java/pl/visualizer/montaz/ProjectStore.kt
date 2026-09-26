@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+internal const val MIN_LABEL_SCALE = 0.6f
+internal const val MAX_LABEL_SCALE = 2f
+
 data class PhotoItem(
     val id: String,
     val fileName: String,
@@ -18,6 +21,9 @@ data class PhotoItem(
     val contrast: Float = 1f,
     val pnCorner: String = "TL",
     val stepsCorner: String = "BR",
+    // Label size as a multiple of the standard 10 pt print label; each label scales on its own.
+    val pnScale: Float = 1f,
+    val stepsScale: Float = 1f,
     // Framing inside the fixed print size: zoom ≥ 1, centre offset −1…1 across the photo's free travel.
     val cropZoom: Float = 1f,
     val cropX: Float = 0f,
@@ -102,6 +108,8 @@ class ProjectStore(context: Context) {
                         put("contrast", photo.contrast.toDouble())
                         put("pnCorner", photo.pnCorner)
                         put("stepsCorner", photo.stepsCorner)
+                        put("pnScale", photo.pnScale.toDouble())
+                        put("stepsScale", photo.stepsScale.toDouble())
                         put("cropZoom", photo.cropZoom.toDouble())
                         put("cropX", photo.cropX.toDouble())
                         put("cropY", photo.cropY.toDouble())
@@ -140,6 +148,8 @@ class ProjectStore(context: Context) {
                     contrast = item.optDouble("contrast", 1.0).toFloat(),
                     pnCorner = item.optString("pnCorner", "TL"),
                     stepsCorner = item.optString("stepsCorner", "BR"),
+                    pnScale = item.optDouble("pnScale", 1.0).toFloat(),
+                    stepsScale = item.optDouble("stepsScale", 1.0).toFloat(),
                     cropZoom = item.optDouble("cropZoom", 1.0).toFloat(),
                     cropX = item.optDouble("cropX", 0.0).toFloat(),
                     cropY = item.optDouble("cropY", 0.0).toFloat(),

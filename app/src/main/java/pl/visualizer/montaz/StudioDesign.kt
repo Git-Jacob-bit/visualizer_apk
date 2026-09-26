@@ -124,6 +124,7 @@ internal enum class StudioSymbol(val path: String) {
     Crop("M6,2 L6,18 L22,18 M2,6 L18,6 L18,22"),
     Flash("M13,2 L4,14 L11,14 L10,22 L20,9 L13,9 Z"),
     FlashOff("M13,2 L9.5,6.7 M7.5,9.4 L4,14 L11,14 L10,22 L13.5,17.4 M15.8,14.3 L20,9 L13,9 Z M3,3 L21,21"),
+    Sparkle("M11,4 L12.7,9.3 L18,11 L12.7,12.7 L11,18 L9.3,12.7 L4,11 L9.3,9.3 Z M18,15 L18.7,17.3 L21,18 L18.7,18.7 L18,21 L17.3,18.7 L15,18 L17.3,17.3 Z"),
 }
 
 @Composable
@@ -325,29 +326,34 @@ private fun PrintLabelPreview(photo: PhotoItem) {
     val pnY by animateFloatAsState(if (photo.pnCorner.startsWith("B")) 1f else 0f, motion, label = "pnY")
     val stepsX by animateFloatAsState(if (photo.stepsCorner.endsWith("R")) 1f else 0f, motion, label = "stepsX")
     val stepsY by animateFloatAsState(if (photo.stepsCorner.startsWith("B")) 1f else 0f, motion, label = "stepsY")
+    // A resized label grows into its new size instead of snapping to it.
+    val pnScale by animateFloatAsState(photo.pnScale, motion, label = "pnScale")
+    val stepsScale by animateFloatAsState(photo.stepsScale, motion, label = "stepsScale")
     Canvas(Modifier.fillMaxSize()) {
         val unit = size.width / (photo.widthMm * 72f / 25.4f)
-        val padding = 0.65f * 72f / 25.4f * unit
         listOf(
-            Triple(photo.pn, Offset(pnX, pnY), android.graphics.Color.WHITE),
-            Triple(photo.steps, Offset(stepsX, stepsY), android.graphics.Color.rgb(255, 213, 74)),
-        ).forEach { (text, corner, background) ->
+            LabelPreview(photo.pn, Offset(pnX, pnY), pnScale, android.graphics.Color.WHITE),
+            LabelPreview(photo.steps, Offset(stepsX, stepsY), stepsScale, android.graphics.Color.rgb(255, 213, 74)),
+        ).forEach { (text, corner, scale, background) ->
             if (text.isNotBlank()) {
                 val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     color = android.graphics.Color.BLACK
                     typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
-                    textSize = 10f * unit
+                    textSize = 10f * unit * scale
                 }
-                while (paint.measureText(text) > size.width - 2 * padding && paint.textSize > 5.5f * unit) paint.textSize -= 0.5f * unit
+                while (paint.measureText(text) > size.width - 2 * labelPadding(paint.textSize) && paint.textSize > 5.5f * unit) paint.textSize -= 0.5f * unit
+                val padding = labelPadding(paint.textSize)
                 val width = paint.measureText(text) + 2 * padding
                 val height = paint.fontMetrics.descent - paint.fontMetrics.ascent + 2 * padding
                 val left = corner.x * (size.width - width)
                 val top = corner.y * (size.height - height)
                 val canvas = drawContext.canvas.nativeCanvas
                 canvas.drawRect(left, top, left + width, top + height, android.graphics.Paint().apply { color = background })
-                canvas.drawRect(left, top, left + width, top + height, android.graphics.Paint().apply { color = android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 0.9f * unit })
+                canvas.drawRect(left, top, left + width, top + height, android.graphics.Paint().apply { color = android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 0.9f * paint.textSize / 10f })
                 canvas.drawText(text, left + padding, top + padding - paint.fontMetrics.ascent, paint)
             }
         }
     }
 }
+
+private data class LabelPreview(val text: String, val corner: Offset, val scale: Float, val background: Int)

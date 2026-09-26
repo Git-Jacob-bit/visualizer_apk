@@ -169,6 +169,10 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
     var route by rememberSaveable { mutableStateOf(if (settings.getBoolean("welcome_done", false)) PROJECTS else WELCOME) }
     val tutorial = remember { TutorialController(settings) }
     var showAbout by remember { mutableStateOf(false) }
+    // Shown once after an update; the About sheet reopens it as the full history.
+    val newReleases = remember(lang) { unseenReleases(settings, lang) }
+    var showWhatsNew by remember { mutableStateOf(newReleases.isNotEmpty()) }
+    var showHistory by remember { mutableStateOf(false) }
     var exportedOnce by remember { mutableStateOf(settings.getBoolean("exported_once", false)) }
     var projectId by rememberSaveable { mutableStateOf("") }
     var photoId by rememberSaveable { mutableStateOf("") }
@@ -191,6 +195,7 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
         }
     }
     val cameraRoute = route == CAMERA || route == REVIEW
+    LaunchedEffect(Unit) { if (newReleases.isEmpty()) markChangelogSeen(settings) }
 
     SideEffect {
         (context as? Activity)?.let { activity ->
@@ -333,9 +338,15 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
 
     if (showAbout) {
         CompositionLocalProvider(LocalTutorial provides tutorial) {
-            AboutSheet(tutorial, onManual = { showAbout = false; route = MANUAL }, onWelcome = { showAbout = false; route = WELCOME }, onDismiss = { showAbout = false })
+            AboutSheet(tutorial, onManual = { showAbout = false; route = MANUAL }, onChangelog = { showAbout = false; showHistory = true },
+                onWelcome = { showAbout = false; route = WELCOME }, onDismiss = { showAbout = false })
         }
     }
+    // A fresh install starts on the welcome screen, so the list of changes waits until the app itself is introduced.
+    if (showWhatsNew && route != WELCOME) {
+        ChangelogSheet(newReleases, history = false, onDismiss = { showWhatsNew = false; markChangelogSeen(settings) })
+    }
+    if (showHistory) ChangelogSheet(changelog(lang), history = true, onDismiss = { showHistory = false })
     if (showPrinter) {
         CompositionLocalProvider(LocalPrintProfile provides printProfile) {
             PrinterSheet(printProfile, onChange = { printProfile = it; it.save(settings) },

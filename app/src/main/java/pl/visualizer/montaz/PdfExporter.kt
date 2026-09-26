@@ -52,8 +52,8 @@ object PdfExporter {
                     "The ${mmText(photo.widthMm, photo.heightMm)} photo is larger than the printable A4 area.")
             }
             val labelArea = RectF(0f, 0f, width, height)
-            if (photo.pn.isNotBlank()) labelPaint(photo.pn, labelArea, lang)
-            if (photo.steps.isNotBlank()) labelPaint(photo.steps, labelArea, lang)
+            if (photo.pn.isNotBlank()) labelPaint(photo.pn, labelArea, photo.pnScale, lang)
+            if (photo.steps.isNotBlank()) labelPaint(photo.steps, labelArea, photo.stepsScale, lang)
             if (x > margin && x + width > PAGE_W - margin) {
                 x = margin
                 y += rowHeight + gapY
@@ -117,8 +117,8 @@ object PdfExporter {
         } finally {
             bitmap.recycle()
         }
-        if (photo.pn.isNotBlank()) drawLabel(canvas, photo.pn, box, photo.pnCorner, Color.WHITE, lang)
-        if (photo.steps.isNotBlank()) drawLabel(canvas, photo.steps, box, photo.stepsCorner, stepsYellow, lang)
+        if (photo.pn.isNotBlank()) drawLabel(canvas, photo.pn, box, photo.pnCorner, photo.pnScale, Color.WHITE, lang)
+        if (photo.steps.isNotBlank()) drawLabel(canvas, photo.steps, box, photo.stepsCorner, photo.stepsScale, stepsYellow, lang)
         drawCutLine(canvas, box)
         drawCaption(canvas, placement)
     }
@@ -204,27 +204,28 @@ object PdfExporter {
         }
     }
 
-    private fun drawLabel(canvas: Canvas, text: String, photoBox: RectF, corner: String, background: Int, lang: Lang) {
-        val padding = pt(0.65f)
-        val paint = labelPaint(text, photoBox, lang)
+    private fun drawLabel(canvas: Canvas, text: String, photoBox: RectF, corner: String, scale: Float, background: Int, lang: Lang) {
+        val paint = labelPaint(text, photoBox, scale, lang)
+        val padding = labelPadding(paint.textSize)
         val width = paint.measureText(text) + 2 * padding
         val height = paint.fontMetrics.descent - paint.fontMetrics.ascent + 2 * padding
         val left = if (corner.endsWith("R")) photoBox.right - width else photoBox.left
         val top = if (corner.startsWith("B")) photoBox.bottom - height else photoBox.top
         val labelBox = RectF(left, top, left + width, top + height)
         canvas.drawRect(labelBox, Paint().apply { color = background })
-        canvas.drawRect(labelBox, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 0.9f })
+        canvas.drawRect(labelBox, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 0.9f * paint.textSize / 10f })
         canvas.drawText(text, left + padding, top + padding - paint.fontMetrics.ascent, paint)
     }
 
-    private fun labelPaint(text: String, photoBox: RectF, lang: Lang): Paint {
-        val padding = pt(0.65f)
+    // The label starts at its chosen size (10 pt at 100%) and still shrinks if it would not fit the photo's width.
+    private fun labelPaint(text: String, photoBox: RectF, scale: Float, lang: Lang): Paint {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            textSize = 10f
+            textSize = 10f * scale
         }
-        while (paint.measureText(text) > photoBox.width() - 2 * padding && paint.textSize > 5.5f) paint.textSize -= 0.5f
+        while (paint.measureText(text) > photoBox.width() - 2 * labelPadding(paint.textSize) && paint.textSize > 5.5f) paint.textSize -= 0.5f
+        val padding = labelPadding(paint.textSize)
         val height = paint.fontMetrics.descent - paint.fontMetrics.ascent + 2 * padding
         require(paint.measureText(text) <= photoBox.width() - 2 * padding && height <= photoBox.height()) {
             lang.tr("Oznaczenie „$text” nie mieści się czytelnie na zdjęciu.", "The label “$text” does not fit legibly on the photo.")
@@ -306,3 +307,7 @@ object PdfExporter {
         canvas.drawText(sheet, PAGE_W - margin - paint.measureText(sheet), y, paint)
     }
 }
+
+// The frame around the label text keeps its proportion (0.65 pt at the standard 10 pt size), so a label that had
+// to shrink to fit the photo's width does not end up in an oversized box. The preview and the editor use it too.
+internal fun labelPadding(textSize: Float) = textSize * 0.065f

@@ -13,13 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Check that the tag matches versionName
+      - name: Check that the tag matches versionName and the changelog
         run: |
           version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          code=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version in app/build.gradle.kts"
             exit 1
           fi
+          # The release notes come from CHANGELOG.md; the app shows the same entry from Changelog.kt after an update.
+          if ! grep -q "^## $version " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section"
+            exit 1
+          fi
+          if ! grep -q "Release(\"$version\", $code," app/src/main/java/pl/visualizer/montaz/Changelog.kt; then
+            echo "::error::Changelog.kt has no Release(\"$version\", $code, ...) entry"
+            exit 1
+          fi
+          awk -v v="## $version " 'index($0, v) == 1 {found = 1; next} found && /^## / {exit} found' CHANGELOG.md > release-notes.md
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -47,6 +58,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           name: Wizualizator ramy ${{ github.ref_name }}
+          body_path: release-notes.md
           generate_release_notes: true
           files: |
             wizualizator-ramy-${{ github.ref_name }}.apk
