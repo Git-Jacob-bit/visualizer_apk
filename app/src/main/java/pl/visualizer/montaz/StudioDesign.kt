@@ -332,12 +332,12 @@ private fun PrintLabelPreview(photo: PhotoItem) {
     Canvas(Modifier.fillMaxSize()) {
         val unit = size.width / (photo.widthMm * 72f / 25.4f)
         listOf(
-            LabelPreview(photo.pn, Offset(pnX, pnY), pnScale, android.graphics.Color.WHITE),
+            LabelPreview(photo.pn, Offset(pnX, pnY), pnScale, photo.pnColor),
             LabelPreview(photo.steps, Offset(stepsX, stepsY), stepsScale, android.graphics.Color.rgb(255, 213, 74)),
         ).forEach { (text, corner, scale, background) ->
             if (text.isNotBlank()) {
                 val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.BLACK
+                    color = labelTextColor(background)
                     typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
                     textSize = 10f * unit * scale
                 }

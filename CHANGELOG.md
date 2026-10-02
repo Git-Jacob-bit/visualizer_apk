@@ -8,6 +8,13 @@ Dodając wersję: wpisz zmiany tutaj i w `Changelog.kt`, podnieś `versionCode` 
 w `app/build.gradle.kts` (pole `code` w `Changelog.kt` musi być równe nowemu `versionCode`),
 a na koniec oznacz wydanie tagiem `v<versionName>`, który zbuduje podpisany APK na GitHubie.
 
+## 0.10.0 — 2026-10-02
+
+- **Kolor okienka PN.** W zakładce Układ, pod wielkością, można wybrać kolor okienka z numerem PN: biały,
+  pomarańczowy, czerwony, zielony, niebieski lub czarny. Na ciemnym tle numer drukuje się na biało, żeby był
+  czytelny. Kafelki narożników, podgląd wydruku i PDF pokazują wybrany kolor. Kolor zapisuje się w projekcie;
+  starsze projekty wczytują się z białym.
+
 ## 0.9.0 — 2026-09-26
 
 - **Wielkość oznaczeń.** W zakładce Układ suwak ustawia wielkość każdego oznaczenia osobno — od 60 do 200%

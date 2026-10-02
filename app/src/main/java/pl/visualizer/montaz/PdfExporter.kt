@@ -117,7 +117,7 @@ object PdfExporter {
         } finally {
             bitmap.recycle()
         }
-        if (photo.pn.isNotBlank()) drawLabel(canvas, photo.pn, box, photo.pnCorner, photo.pnScale, Color.WHITE, lang)
+        if (photo.pn.isNotBlank()) drawLabel(canvas, photo.pn, box, photo.pnCorner, photo.pnScale, photo.pnColor, lang)
         if (photo.steps.isNotBlank()) drawLabel(canvas, photo.steps, box, photo.stepsCorner, photo.stepsScale, stepsYellow, lang)
         drawCutLine(canvas, box)
         drawCaption(canvas, placement)
@@ -205,7 +205,7 @@ object PdfExporter {
     }
 
     private fun drawLabel(canvas: Canvas, text: String, photoBox: RectF, corner: String, scale: Float, background: Int, lang: Lang) {
-        val paint = labelPaint(text, photoBox, scale, lang)
+        val paint = labelPaint(text, photoBox, scale, lang).apply { color = labelTextColor(background) }
         val padding = labelPadding(paint.textSize)
         val width = paint.measureText(text) + 2 * padding
         val height = paint.fontMetrics.descent - paint.fontMetrics.ascent + 2 * padding

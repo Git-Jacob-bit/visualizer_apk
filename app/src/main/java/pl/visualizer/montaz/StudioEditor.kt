@@ -67,6 +67,7 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
     var stepsCorner by rememberSaveable(photo.id) { mutableStateOf(photo.stepsCorner) }
     var pnScale by rememberSaveable(photo.id) { mutableStateOf(photo.pnScale) }
     var stepsScale by rememberSaveable(photo.id) { mutableStateOf(photo.stepsScale) }
+    var pnColor by rememberSaveable(photo.id) { mutableStateOf(photo.pnColor) }
     var cropZoom by rememberSaveable(photo.id) { mutableStateOf(photo.cropZoom) }
     var cropX by rememberSaveable(photo.id) { mutableStateOf(photo.cropX) }
     var cropY by rememberSaveable(photo.id) { mutableStateOf(photo.cropY) }
@@ -74,7 +75,7 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
     val scope = rememberCoroutineScope()
     var discard by remember { mutableStateOf(false) }
     val valid = pn.isBlank() || pn.matches(Regex("[0-9]{10}"))
-    val preview = photo.copy(pn = pn, steps = steps, brightness = brightness, contrast = contrast, pnCorner = pnCorner, stepsCorner = stepsCorner, pnScale = pnScale, stepsScale = stepsScale, cropZoom = cropZoom, cropX = cropX, cropY = cropY)
+    val preview = photo.copy(pn = pn, steps = steps, brightness = brightness, contrast = contrast, pnCorner = pnCorner, stepsCorner = stepsCorner, pnScale = pnScale, stepsScale = stepsScale, pnColor = pnColor, cropZoom = cropZoom, cropX = cropX, cropY = cropY)
     val dirty = preview != photo
     val focus = LocalFocusManager.current
     val dpi by produceState<Int?>(null, file.path, photo.widthMm, photo.heightMm) {
@@ -155,7 +156,8 @@ internal fun ModernPhotoEditor(photo: PhotoItem, file: File, isNew: Boolean, onB
                             val pnShown = pnMm / labelHeightMm(pn, photo.widthMm, 1f)
                             val stepsShown = stepsMm / labelHeightMm(steps, photo.widthMm, 1f)
                             val overflow = (pn.isNotBlank() && pnMm > photo.heightMm) || (steps.isNotBlank() && stepsMm > photo.heightMm)
-                            LabelLayout(tr("Numer PN", "PN number"), pnCorner, pnScale, pnMm, pnShown, Color.White, { pnCorner = it }, { pnScale = it })
+                            LabelLayout(tr("Numer PN", "PN number"), pnCorner, pnScale, pnMm, pnShown, Color(pnColor), { pnCorner = it }, { pnScale = it })
+                            LabelColorPicker(tr("Numer PN", "PN number"), pnColor) { pnColor = it }
                             HorizontalDivider(color = colors.outlineVariant)
                             LabelLayout(tr("Kroki", "Steps"), stepsCorner, stepsScale, stepsMm, stepsShown, LabelYellow, { stepsCorner = it }, { stepsScale = it })
                             Text(
@@ -337,7 +339,7 @@ private fun CornerPicker(title: String, corner: String, scale: Float, marker: Co
                     .border(1.5.dp, border, RoundedCornerShape(10.dp))
                     .semantics { contentDescription = "$title: $description"; selected = active }
                     .clickable(interactionSource = source, indication = null) { onCorner(position) }, contentAlignment = Alignment.Center) {
-                    // The marker keeps its print colour (white PN, yellow steps); only the tile shows selection.
+                    // The marker keeps its print colour (chosen PN colour, yellow steps); only the tile shows selection.
                     Canvas(Modifier.size(26.dp, 19.dp)) {
                         // The tile mirrors the printed proportions: a bigger label fills more of the photo.
                         val portion = 0.42f * (0.55f + 0.45f * shown)
@@ -348,6 +350,34 @@ private fun CornerPicker(title: String, corner: String, scale: Float, marker: Co
                         drawRect(StudioInk, offset, Size(width, height), style = Stroke(0.8.dp.toPx()))
                         drawRect(if (active) colors.primary else colors.onSurfaceVariant, style = Stroke(1.dp.toPx()))
                     }
+                }
+            }
+        }
+    }
+}
+
+// Background colour of the printed label; the text switches to white on dark colours by itself.
+@Composable
+private fun LabelColorPicker(title: String, color: Int, onColor: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val colorLabel = tr("Kolor", "Colour")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(colorLabel, fontSize = 13.sp, color = colors.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PN_LABEL_COLORS.forEach { option ->
+                val active = option == color
+                val name = when (option) {
+                    PN_LABEL_COLORS[0] -> tr("Biały", "White"); PN_LABEL_COLORS[1] -> tr("Pomarańczowy", "Orange")
+                    PN_LABEL_COLORS[2] -> tr("Czerwony", "Red"); PN_LABEL_COLORS[3] -> tr("Zielony", "Green")
+                    PN_LABEL_COLORS[4] -> tr("Niebieski", "Blue"); else -> tr("Czarny", "Black")
+                }
+                val border by animateColorAsState(if (active) colors.primary else colors.outlineVariant, label = "colorBorder")
+                val source = remember { MutableInteractionSource() }
+                Box(Modifier.weight(1f).height(36.dp).pressScale(source).clip(RoundedCornerShape(10.dp)).background(Color(option))
+                    .border(if (active) 2.5.dp else 1.dp, border, RoundedCornerShape(10.dp))
+                    .semantics { contentDescription = "$title, $colorLabel: $name"; selected = active }
+                    .clickable(interactionSource = source, indication = null) { onColor(option) }, contentAlignment = Alignment.Center) {
+                    Text("PN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(labelTextColor(option)))
                 }
             }
         }

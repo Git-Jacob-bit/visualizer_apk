@@ -10,6 +10,15 @@ import java.util.UUID
 internal const val MIN_LABEL_SCALE = 0.6f
 internal const val MAX_LABEL_SCALE = 2f
 
+// Background colours offered for the PN label, as ARGB; white is the default and what older projects load.
+internal val PN_LABEL_COLORS = listOf(
+    0xFFFFFFFF.toInt(), 0xFFFF8A00.toInt(), 0xFFE53935.toInt(), 0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFF000000.toInt(),
+)
+
+// Black text unless the label is dark enough that white reads better.
+internal fun labelTextColor(background: Int): Int =
+    if (android.graphics.Color.luminance(background) < 0.18f) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+
 data class PhotoItem(
     val id: String,
     val fileName: String,
@@ -24,6 +33,7 @@ data class PhotoItem(
     // Label size as a multiple of the standard 10 pt print label; each label scales on its own.
     val pnScale: Float = 1f,
     val stepsScale: Float = 1f,
+    val pnColor: Int = PN_LABEL_COLORS[0],
     // Framing inside the fixed print size: zoom ≥ 1, centre offset −1…1 across the photo's free travel.
     val cropZoom: Float = 1f,
     val cropX: Float = 0f,
@@ -110,6 +120,7 @@ class ProjectStore(context: Context) {
                         put("stepsCorner", photo.stepsCorner)
                         put("pnScale", photo.pnScale.toDouble())
                         put("stepsScale", photo.stepsScale.toDouble())
+                        put("pnColor", photo.pnColor)
                         put("cropZoom", photo.cropZoom.toDouble())
                         put("cropX", photo.cropX.toDouble())
                         put("cropY", photo.cropY.toDouble())
@@ -150,6 +161,7 @@ class ProjectStore(context: Context) {
                     stepsCorner = item.optString("stepsCorner", "BR"),
                     pnScale = item.optDouble("pnScale", 1.0).toFloat(),
                     stepsScale = item.optDouble("stepsScale", 1.0).toFloat(),
+                    pnColor = item.optInt("pnColor", PN_LABEL_COLORS[0]),
                     cropZoom = item.optDouble("cropZoom", 1.0).toFloat(),
                     cropX = item.optDouble("cropX", 0.0).toFloat(),
                     cropY = item.optDouble("cropY", 0.0).toFloat(),

@@ -28,8 +28,8 @@ android {
         applicationId = "pl.visualizer.montaz"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.9.0"
+        versionCode = 11
+        versionName = "0.10.0"
     }
 
     signingConfigs {
