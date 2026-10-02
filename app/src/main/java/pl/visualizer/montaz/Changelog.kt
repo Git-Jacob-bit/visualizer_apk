@@ -28,6 +28,11 @@ internal data class ReleaseNote(val title: String, val text: String)
 internal data class Release(val version: String, val code: Int, val date: String, val notes: List<ReleaseNote>)
 
 internal fun changelog(lang: Lang): List<Release> = listOf(
+    Release("0.10.1", 12, "2026-10-02", listOf(
+        ReleaseNote(lang.tr("Kolor PN: biały lub żółty", "PN colour: white or yellow"),
+            lang.tr("Okienko PN może być teraz białe albo żółte. Zdjęcia, którym ustawiono inny kolor, wracają do białego.",
+                "The PN label can now be white or yellow. Photos that were set to another colour go back to white.")),
+    )),
     Release("0.10.0", 11, "2026-10-02", listOf(
         ReleaseNote(lang.tr("Kolor okienka PN", "PN label colour"),
             lang.tr("W zakładce Układ wybierzesz kolor okienka z numerem PN: biały, pomarańczowy, czerwony, zielony, niebieski lub czarny. Na ciemnym tle numer drukuje się na biało, a podgląd i PDF od razu pokazują wybrany kolor.",

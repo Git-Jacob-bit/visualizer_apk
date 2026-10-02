@@ -356,7 +356,7 @@ private fun CornerPicker(title: String, corner: String, scale: Float, marker: Co
     }
 }
 
-// Background colour of the printed label; the text switches to white on dark colours by itself.
+// Background colour of the printed PN label.
 @Composable
 private fun LabelColorPicker(title: String, color: Int, onColor: (Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
@@ -366,11 +366,7 @@ private fun LabelColorPicker(title: String, color: Int, onColor: (Int) -> Unit) 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PN_LABEL_COLORS.forEach { option ->
                 val active = option == color
-                val name = when (option) {
-                    PN_LABEL_COLORS[0] -> tr("Biały", "White"); PN_LABEL_COLORS[1] -> tr("Pomarańczowy", "Orange")
-                    PN_LABEL_COLORS[2] -> tr("Czerwony", "Red"); PN_LABEL_COLORS[3] -> tr("Zielony", "Green")
-                    PN_LABEL_COLORS[4] -> tr("Niebieski", "Blue"); else -> tr("Czarny", "Black")
-                }
+                val name = if (option == PN_LABEL_COLORS[0]) tr("Biały", "White") else tr("Żółty", "Yellow")
                 val border by animateColorAsState(if (active) colors.primary else colors.outlineVariant, label = "colorBorder")
                 val source = remember { MutableInteractionSource() }
                 Box(Modifier.weight(1f).height(36.dp).pressScale(source).clip(RoundedCornerShape(10.dp)).background(Color(option))

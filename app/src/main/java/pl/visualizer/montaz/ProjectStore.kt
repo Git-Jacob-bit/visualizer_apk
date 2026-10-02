@@ -10,10 +10,9 @@ import java.util.UUID
 internal const val MIN_LABEL_SCALE = 0.6f
 internal const val MAX_LABEL_SCALE = 2f
 
-// Background colours offered for the PN label, as ARGB; white is the default and what older projects load.
-internal val PN_LABEL_COLORS = listOf(
-    0xFFFFFFFF.toInt(), 0xFFFF8A00.toInt(), 0xFFE53935.toInt(), 0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFF000000.toInt(),
-)
+// Background colours offered for the PN label, as ARGB: white (the default, and what older projects load) or the
+// steps label's print yellow.
+internal val PN_LABEL_COLORS = listOf(0xFFFFFFFF.toInt(), 0xFFFFD330.toInt())
 
 // Black text unless the label is dark enough that white reads better.
 internal fun labelTextColor(background: Int): Int =
@@ -161,7 +160,7 @@ class ProjectStore(context: Context) {
                     stepsCorner = item.optString("stepsCorner", "BR"),
                     pnScale = item.optDouble("pnScale", 1.0).toFloat(),
                     stepsScale = item.optDouble("stepsScale", 1.0).toFloat(),
-                    pnColor = item.optInt("pnColor", PN_LABEL_COLORS[0]),
+                    pnColor = item.optInt("pnColor", PN_LABEL_COLORS[0]).takeIf { it in PN_LABEL_COLORS } ?: PN_LABEL_COLORS[0],
                     cropZoom = item.optDouble("cropZoom", 1.0).toFloat(),
                     cropX = item.optDouble("cropX", 0.0).toFloat(),
                     cropY = item.optDouble("cropY", 0.0).toFloat(),
