@@ -155,7 +155,18 @@ object ZipReader {
     fun load(file: RandomAccess): Loaded =
         try { Loaded(directory(file), recovered = false) } catch (error: IOException) { Loaded(scan(file).ifEmpty { throw error }, recovered = true) }
 
-    fun directory(file: RandomAccess): List<ZipEntryInfo> {
+    /**
+     * One member by name, checking only that member: after an interrupted compaction other members' offsets may be
+     * stale while this one is intact. Falls back to a scan. Null when it is not there or its checksum fails.
+     */
+    fun find(file: RandomAccess, name: String): Pair<ZipEntryInfo, ByteArray>? {
+        val candidates = (runCatching { directory(file, verifyAll = false) }.getOrNull()?.filter { it.name == name } ?: emptyList()) +
+            runCatching { scan(file) }.getOrDefault(emptyList()).filter { it.name == name }
+        for (entry in candidates) runCatching { read(file, entry) }.getOrNull()?.let { return entry to it }
+        return null
+    }
+
+    fun directory(file: RandomAccess, verifyAll: Boolean = true): List<ZipEntryInfo> {
         val size = file.size
         if (size < 22) throw ZipFormatException("Archive too short")
         val tailLength = minOf(size, 22L + 0xFFFF).toInt()
@@ -202,12 +213,11 @@ object ZipReader {
                 extra += 4 + length
             }
             val local = ByteArray(30).also { file.read(offset, it) }
-            if (le32(local, 0) != 0x04034b50L) throw ZipFormatException("Broken local header: $name")
-            // After an interrupted compaction an old offset can hold another member's header; the name tells.
-            val localName = ByteArray(le16(local, 26)).also { file.read(offset + 30, it) }
-            if (!localName.contentEquals(directory.copyOfRange(at + 46, at + 46 + nameLength))) throw ZipFormatException("Directory does not match: $name")
-            val dataOffset = offset + 30 + le16(local, 26) + le16(local, 28)
-            result += ZipEntryInfo(name, offset, dataOffset, compressed, plain, crc, method, time, date)
+            val sound = le32(local, 0) == 0x04034b50L &&
+                // After an interrupted compaction an old offset can hold another member's header; the name tells.
+                ByteArray(le16(local, 26)).also { file.read(offset + 30, it) }.contentEquals(directory.copyOfRange(at + 46, at + 46 + nameLength))
+            if (sound) result += ZipEntryInfo(name, offset, offset + 30 + le16(local, 26) + le16(local, 28), compressed, plain, crc, method, time, date)
+            else if (verifyAll) throw ZipFormatException("Directory does not match: $name")
             at = extraEnd + commentLength
         }
         return result

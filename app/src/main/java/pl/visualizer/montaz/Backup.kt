@@ -221,7 +221,12 @@ internal class FdRandomAccess(private val pfd: ParcelFileDescriptor) : RandomAcc
         while (done < length) done += Os.pwrite(fd, buffer, offset + done, length - done, position + done)
     }
     override fun truncate(size: Long) = Os.ftruncate(fd, size)
-    override fun sync() = Os.fsync(fd)
+    // A provider whose descriptor cannot be synced (EINVAL, EROFS) still gets ordinary writes.
+    override fun sync() {
+        try { Os.fsync(fd) } catch (error: ErrnoException) {
+            if (error.errno != OsConstants.EINVAL && error.errno != OsConstants.EROFS) throw error
+        }
+    }
     override fun close() = pfd.close()
 
     companion object {
@@ -238,6 +243,13 @@ private class LockedFileAccess(file: File) : RandomAccess {
     override fun write(position: Long, buffer: ByteArray, offset: Int, length: Int) = throw UnsupportedOperationException()
     override fun truncate(size: Long) = throw UnsupportedOperationException()
     override fun close() = inner.close()
+}
+
+/** What a file in the backup folder is: a backup with an id, a file that is not one, or one that cannot be read now. */
+sealed interface Peek {
+    data class Id(val id: String) : Peek
+    data object NoManifest : Peek
+    data class Unreadable(val error: Exception) : Peek
 }
 
 class NotABackupException : IllegalStateException("Not a frame visualizer backup")
@@ -329,10 +341,18 @@ class BackupArchive private constructor(
         }
 
         /** Just the identity of a backup, for deciding whether the automatic backup may write over it. */
-        internal fun peekId(access: RandomAccess): String? = runCatching {
-            val entry = ZipReader.entries(access).firstOrNull { it.name == BackupFormat.MANIFEST } ?: return null
-            JSONObject(ZipReader.read(access, entry).toString(Charsets.UTF_8)).optString("backupId").ifBlank { null }
-        }.getOrNull()
+        internal fun peek(access: RandomAccess): Peek = try {
+            val manifest = ZipReader.find(access, BackupFormat.MANIFEST)
+            val id = manifest?.let { runCatching { JSONObject(it.second.toString(Charsets.UTF_8)).optString("backupId") }.getOrNull() }
+            if (id.isNullOrBlank()) Peek.NoManifest else Peek.Id(id)
+        } catch (error: java.io.IOException) {
+            Peek.Unreadable(error)
+        }
+
+        /** The last saved version of one project, e.g. when the phone's own copy of it can no longer be read. */
+        internal fun project(access: RandomAccess, id: String): Project? = ZipReader.find(access, BackupFormat.projectPath(id))
+            ?.let { runCatching { ProjectStore.fromJson(JSONObject(it.second.toString(Charsets.UTF_8))) }.getOrNull() }
+            ?.takeIf { it.id == id }
     }
 }
 

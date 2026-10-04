@@ -90,8 +90,10 @@ internal class BackupController private constructor(private val context: Context
 
     fun openArchive(uri: Uri, autoFile: Boolean, lang: Lang) = scope.launch {
         try {
-            if (autoFile) backup.pause()
-            val opened = busy(lang.tr("Otwieranie kopii…", "Opening the backup…")) { withContext(Dispatchers.IO) { BackupArchive.open(context, uri) } }
+            val opened = busy(lang.tr("Otwieranie kopii…", "Opening the backup…")) {
+                if (autoFile) backup.pause()
+                withContext(Dispatchers.IO) { BackupArchive.open(context, uri) }
+            }
             setArchive(opened, autoFile)
             sheet = false
             foreign = null

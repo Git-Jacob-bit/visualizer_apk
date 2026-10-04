@@ -148,6 +148,19 @@ class BackupZipTest {
         assertArrayEquals(aData, standardContents(file).getValue(a.name))
     }
 
+    @Test fun manifestIsFoundWhenAnotherMemberNoLongerMatchesTheDirectory() {
+        val file = temp.newFile("backup.zip")
+        val (a, _) = photo("projekty/p1/a.jpg", 5000)
+        update(file, listOf(a), "1")
+        // A stale offset (interrupted compaction): the photo's local header no longer carries its name.
+        val entry = FileRandomAccess(file, false).use { ZipReader.directory(it).first { it.name == a.name } }
+        FileRandomAccess(file, true).use { it.write(entry.offset + 30, "X".toByteArray()) }
+        FileRandomAccess(file, false).use { access ->
+            assertTrue(runCatching { ZipReader.directory(access) }.isFailure)
+            assertEquals("""{"v":"1"}""", ZipReader.find(access, "backup.json")!!.second.toString(Charsets.UTF_8))
+        }
+    }
+
     @Test fun duplicatePhotoNamesAreWrittenOnce() {
         val file = temp.newFile("backup.zip")
         val (a, _) = photo("projekty/p1/a.jpg", 5000)
