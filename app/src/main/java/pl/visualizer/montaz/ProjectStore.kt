@@ -57,14 +57,18 @@ class ProjectStore(context: Context, private val onChange: () -> Unit = {}) {
         ?: emptyList()
 
     /**
-     * Every project, failing instead of skipping one whose project.json cannot be read. The backup mirrors this list,
-     * so a project that is merely unreadable must never look deleted. A folder without project.json is not a project.
+     * Readable projects and the ids of those whose project.json cannot be read. The backup mirrors the phone, so a
+     * project that is merely unreadable must never look deleted; it fails outright when the folder cannot be listed.
+     * A folder without project.json is not a project.
      */
-    fun allStrict(): List<Project> {
+    fun scan(): Pair<List<Project>, List<String>> {
         val dirs = root.listFiles() ?: throw java.io.IOException("Cannot list projects")
-        return dirs.filter { it.isDirectory && (File(it, "project.json").exists() || File(it, "project.json.bak").exists()) }
-            .map { dir -> try { read(dir) } catch (error: Exception) { throw java.io.IOException("Unreadable project ${dir.name}", error) } }
-            .sortedByDescending { it.createdAt }
+        val projects = mutableListOf<Project>()
+        val broken = mutableListOf<String>()
+        dirs.filter { it.isDirectory && (File(it, "project.json").exists() || File(it, "project.json.bak").exists()) }.forEach { dir ->
+            runCatching { read(dir) }.onSuccess { projects += it }.onFailure { broken += dir.name }
+        }
+        return projects.sortedByDescending { it.createdAt } to broken
     }
 
     fun get(id: String): Project? = all().firstOrNull { it.id == id }

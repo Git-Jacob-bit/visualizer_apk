@@ -144,21 +144,30 @@ class AutoBackup private constructor(private val context: Context) {
         _status.update { it.copy(running = true) }
         try {
             val tree = treeUri() ?: return@withLock
-            // Read the projects first: if one cannot be read, nothing is written rather than mirroring it as deleted.
-            val projects = store.allStrict()
+            val (readable, broken) = store.scan()
             val file = backupFile(tree, create = true) ?: throw SecurityException("Backup folder unavailable")
             val pfd = resolver.openFileDescriptor(file, "rw") ?: throw SecurityException("Cannot open backup file")
             val size = FdRandomAccess(pfd).use { access ->
-                // Only an empty file or one carrying this install's id may be written. Anything else — another
-                // install's backup, a file still being copied in, one that cannot be read — waits for the user.
-                if (access.size > 0 && BackupArchive.peekId(access) != backupId) {
+                // Only an empty file, one carrying this install's id, or one this install was writing when it was
+                // interrupted may be written. Another install's backup, or a file that is not a backup, waits for the
+                // user; a file that cannot be read right now is retried later, never taken as foreign.
+                val ours = access.size == 0L || state.getBoolean(KEY_WRITING, false) || when (val peek = BackupArchive.peek(access)) {
+                    is Peek.Id -> peek.id == backupId
+                    Peek.NoManifest -> false
+                    is Peek.Unreadable -> throw peek.error
+                }
+                if (!ours) {
                     state.edit().putBoolean(KEY_FOREIGN, true).apply()
                     return@withLock
                 }
+                // A project the phone can no longer read keeps its last saved version instead of vanishing from the
+                // backup; one that was never backed up has nothing to keep.
+                val projects = readable + broken.mapNotNull { BackupArchive.project(access, it) }
                 val content = BackupContent(store, projects, settings, backupId, auto = true, Lang.fromCode(settings.getString("language", null)) ?: Lang.system())
+                state.edit().putBoolean(KEY_WRITING, true).commit()
                 ZipUpdater.update(access, content.photos, content.head(), content.tail()).size
             }
-            state.edit().putLong(KEY_LAST, System.currentTimeMillis()).putLong(KEY_SIZE, size).apply()
+            state.edit().putBoolean(KEY_WRITING, false).putLong(KEY_LAST, System.currentTimeMillis()).putLong(KEY_SIZE, size).apply()
             _status.update { it.copy(problem = null, problemDetail = "", lowSpace = freeBytes() < LOW_SPACE_BYTES) }
         } catch (error: SecurityException) {
             dirty = true
@@ -174,15 +183,23 @@ class AutoBackup private constructor(private val context: Context) {
 
     /** Takes the folder the user picked, creates the backup folder inside it if needed, and inspects what is there. */
     suspend fun connect(tree: Uri): Connection = withContext(Dispatchers.IO) {
-        mutex.withLock {
+        mutex.withLock { try {
             resolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             treeUri()?.takeIf { it != tree }?.let { old -> runCatching { resolver.releasePersistableUriPermission(old, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             val label = rootId.substringAfter(':').trim('/').let { path -> if (path.substringAfterLast('/') == FOLDER) path else listOf(path, FOLDER).filter(String::isNotEmpty).joinToString("/") }
             // Blocked until the folder's content is known, so a failure below never leaves an unchecked folder writable.
-            state.edit().putString(KEY_TREE, tree.toString()).putString(KEY_FOLDER, label).putBoolean(KEY_FOREIGN, true).commit()
+            state.edit().putString(KEY_TREE, tree.toString()).putString(KEY_FOLDER, label).putBoolean(KEY_FOREIGN, true).putBoolean(KEY_WRITING, false).commit()
             val file = backupFile(tree, create = false)
-            val existing = file?.let { uri -> resolver.openFileDescriptor(uri, "r")?.let(::FdRandomAccess)?.use { if (it.size == 0L) null else BackupArchive.peekId(it) ?: "" } }
+            val existing = file?.let { uri ->
+                resolver.openFileDescriptor(uri, "r")?.let(::FdRandomAccess)?.use { access ->
+                    if (access.size == 0L) null else when (val peek = BackupArchive.peek(access)) {
+                        is Peek.Id -> peek.id
+                        Peek.NoManifest -> ""
+                        is Peek.Unreadable -> throw peek.error
+                    }
+                }
+            }
             val result = when {
                 file == null || existing == null -> Connection.Fresh
                 existing == backupId -> Connection.Ours
@@ -192,7 +209,13 @@ class AutoBackup private constructor(private val context: Context) {
             _status.update { it.copy(problem = null, problemDetail = "") }
             publish()
             result
-        }.also { if (it !is Connection.Foreign) requestSync(0) }
+        } catch (error: Exception) {
+            // A folder that could not be checked is not kept: the backup goes back to off, with no false "foreign".
+            state.edit().remove(KEY_TREE).remove(KEY_FOLDER).remove(KEY_FOREIGN).apply()
+            runCatching { resolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            publish()
+            throw error
+        } }.also { if (it !is Connection.Foreign) requestSync(0) }
     }
 
     /** The backup in the folder, e.g. to restore from it; null when there is none or the folder is not granted. */
@@ -201,7 +224,7 @@ class AutoBackup private constructor(private val context: Context) {
     /** Continues writing into the backup the user just restored from: it becomes this install's own backup. */
     fun adopt(info: BackupInfo) {
         if (info.backupId.isBlank()) return
-        state.edit().putString(KEY_ID, info.backupId).putBoolean(KEY_FOREIGN, false).apply()
+        state.edit().putString(KEY_ID, info.backupId).putBoolean(KEY_FOREIGN, false).putBoolean(KEY_WRITING, false).apply()
         publish()
         requestSync(0)
     }
@@ -215,7 +238,7 @@ class AutoBackup private constructor(private val context: Context) {
                     val stamp = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.ROOT).format(Date(createdAt?.takeIf { it > 0 } ?: System.currentTimeMillis()))
                     DocumentsContract.renameDocument(resolver, file, "backup_$stamp.zip") ?: error("rename failed")
                 }
-                state.edit().putString(KEY_ID, UUID.randomUUID().toString()).putBoolean(KEY_FOREIGN, false).putLong(KEY_SIZE, 0L).putInt(KEY_DISMISSED, 0).apply()
+                state.edit().putString(KEY_ID, UUID.randomUUID().toString()).putBoolean(KEY_FOREIGN, false).putBoolean(KEY_WRITING, false).putLong(KEY_SIZE, 0L).putInt(KEY_DISMISSED, 0).apply()
             }.isSuccess
         }
         publish()
@@ -226,10 +249,13 @@ class AutoBackup private constructor(private val context: Context) {
     /** Stops the automatic backup after any running update; the file stays in the folder. */
     fun disable() {
         synchronized(this) { pending?.cancel() }
+        val tree = treeUri()
         scope.launch {
             mutex.withLock {
+                // A folder picked again in the meantime stays.
+                if (treeUri() != tree) return@withLock
                 treeUri()?.let { runCatching { resolver.releasePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
-                state.edit().remove(KEY_TREE).remove(KEY_FOLDER).remove(KEY_FOREIGN).remove(KEY_LAST).remove(KEY_SIZE).remove(KEY_DISMISSED).apply()
+                state.edit().remove(KEY_TREE).remove(KEY_FOLDER).remove(KEY_FOREIGN).remove(KEY_WRITING).remove(KEY_LAST).remove(KEY_SIZE).remove(KEY_DISMISSED).apply()
                 _status.value = Status()
             }
         }
@@ -244,7 +270,7 @@ class AutoBackup private constructor(private val context: Context) {
     suspend fun exportArchive(uri: Uri, lang: Lang) = withContext(Dispatchers.IO) {
         val output = resolver.openOutputStream(uri) ?: error(lang.tr("Nie można otworzyć pliku docelowego.", "Cannot open the target file."))
         output.buffered().use { stream ->
-            val content = BackupContent(store, store.allStrict(), settings, UUID.randomUUID().toString(), auto = false, lang)
+            val content = BackupContent(store, store.scan().first, settings, UUID.randomUUID().toString(), auto = false, lang)
             ZipUpdater.write(StreamSink(stream), content.photos, content.head(), content.tail())
         }
     }
@@ -292,6 +318,8 @@ class AutoBackup private constructor(private val context: Context) {
         private const val KEY_LAST = "last_success"
         private const val KEY_SIZE = "last_size"
         private const val KEY_DISMISSED = "dismissed_level"
+        /** Set while this install updates the file: an interrupted update leaves a file that is still ours. */
+        private const val KEY_WRITING = "writing"
 
         /** Where the folder picker opens: the phone's Documents folder. */
         val documentsUri: Uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
