@@ -56,6 +56,17 @@ class ProjectStore(context: Context, private val onChange: () -> Unit = {}) {
         ?.sortedByDescending { it.createdAt }
         ?: emptyList()
 
+    /**
+     * Every project, failing instead of skipping one whose project.json cannot be read. The backup mirrors this list,
+     * so a project that is merely unreadable must never look deleted. A folder without project.json is not a project.
+     */
+    fun allStrict(): List<Project> {
+        val dirs = root.listFiles() ?: throw java.io.IOException("Cannot list projects")
+        return dirs.filter { it.isDirectory && (File(it, "project.json").exists() || File(it, "project.json.bak").exists()) }
+            .map { dir -> try { read(dir) } catch (error: Exception) { throw java.io.IOException("Unreadable project ${dir.name}", error) } }
+            .sortedByDescending { it.createdAt }
+    }
+
     fun get(id: String): Project? = all().firstOrNull { it.id == id }
 
     fun create(name: String): Project {
@@ -79,6 +90,7 @@ class ProjectStore(context: Context, private val onChange: () -> Unit = {}) {
      * it cannot supply is left out rather than saved without its file. Returns how many photos made it.
      */
     fun importProject(project: Project, readPhoto: (PhotoItem) -> ByteArray?): Int {
+        require(validId(project.id)) { "Invalid project id" }
         val dir = projectDir(project.id)
         val photos = project.photos.filter { photo ->
             val file = File(dir, photo.fileName)
@@ -144,6 +156,9 @@ class ProjectStore(context: Context, private val onChange: () -> Unit = {}) {
         // file aside, and a read at that moment would put it back over the half-written one — so reads and writes
         // of project.json never overlap, across every ProjectStore instance.
         private val fileLock = Any()
+
+        /** Project ids name folders; one coming from a backup file must not be able to point anywhere else. */
+        fun validId(id: String) = id.isNotEmpty() && id.length <= 64 && id.all { it.isLetterOrDigit() && it.code < 128 || it == '-' }
 
         /** The project.json format, shared with the backup so a project restores exactly as it was saved. */
         fun toJson(project: Project): JSONObject = JSONObject().apply {

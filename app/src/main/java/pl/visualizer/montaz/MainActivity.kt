@@ -217,11 +217,22 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
     }
 
     fun refresh() { projects = store.all() }
-    val backupUi = BackupHost(store, settings, hasProjects = projects.isNotEmpty(), onRefresh = ::refresh, onMessage = { message = it },
-        onBrowse = { route = BACKUP }, onLeaveBrowse = { route = PROJECTS },
-        // Settings (theme, language, printer) are read once at start, so a full restore restarts the screen.
-        onRestored = { route = PROJECTS; (context as? Activity)?.recreate() })
+    val backupUi = BackupHost(hasProjects = projects.isNotEmpty())
     val backupStatus by backupUi.backup.status.collectAsState()
+    var recreating by remember { mutableStateOf(false) }
+    LaunchedEffect(backupUi.events.size) {
+        while (!recreating && backupUi.events.isNotEmpty()) {
+            when (val event = backupUi.events.removeAt(0)) {
+                is BackupEvent.Message -> message = event.text
+                BackupEvent.Refresh -> refresh()
+                BackupEvent.Browse -> route = BACKUP
+                BackupEvent.LeaveBrowse -> route = PROJECTS
+                // Settings (theme, language, printer) are read once at start, so a full restore restarts the screen;
+                // events queued after this one are handled by the new screen.
+                BackupEvent.Restored -> { route = PROJECTS; recreating = true; (context as? Activity)?.recreate() }
+            }
+        }
+    }
     val project = projects.firstOrNull { it.id == projectId }
     val photo = project?.photos?.firstOrNull { it.id == photoId }
 
@@ -331,7 +342,7 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
                             }
                             MANUAL -> ManualScreen(onBack = ::back)
                             BACKUP -> backupUi.archive?.let { archive ->
-                                BackupBrowseScreen(archive, projects, onBack = ::back, onRestoreAll = backupUi.restoreAll, onImport = backupUi.importSelected)
+                                BackupBrowseScreen(archive, projects, onBack = ::back, onRestoreAll = { backupUi.restoreAll(lang) }, onImport = { backupUi.importSelected(it, lang) })
                             } ?: LaunchedEffect(Unit) { route = PROJECTS }
                             PROJECTS -> ModernProjectsScreen(projects, store, darkTheme, onToggleTheme, onToggleLanguage, onPrinter = { showPrinter = true }, onAbout = { showAbout = true },
                                 suggestPrinter = exportedOnce && printProfile == PrintProfile(),

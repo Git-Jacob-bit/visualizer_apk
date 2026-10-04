@@ -1,6 +1,6 @@
 package pl.visualizer.montaz
 
-import android.content.SharedPreferences
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,7 +26,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,160 +36,188 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 
-/** Backup state shared by the projects screen, the backup sheet and the browse screen. */
+/** What the app reacts to; queued so nothing is lost while the activity is recreated. */
+internal sealed interface BackupEvent {
+    data class Message(val text: String) : BackupEvent
+    data object Refresh : BackupEvent
+    data object Browse : BackupEvent
+    data object LeaveBrowse : BackupEvent
+    /** Projects and settings were replaced: the screen restarts to read the restored settings. */
+    data object Restored : BackupEvent
+}
+
+/**
+ * Backup state and the long-running backup actions. One per process rather than per screen, so turning the phone
+ * while browsing or restoring keeps the open archive, and work in progress finishes and reports back.
+ */
 @Stable
-internal class BackupController(val backup: AutoBackup) {
+internal class BackupController private constructor(private val context: Context) {
+    val backup = AutoBackup.get(context)
+    private val store = ProjectStore(context) { backup.requestSync() }
+    private val settings = context.getSharedPreferences(BackupFormat.SETTINGS, Context.MODE_PRIVATE)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     var sheet by mutableStateOf(false)
     var archive by mutableStateOf<BackupArchive?>(null)
         private set
-    /** The open archive is the foreign `backup.zip` in the backup folder; restoring it continues writing into it. */
+    /** The open archive is the `backup.zip` of the backup folder: automatic writes wait while it is open. */
     private var archiveIsAutoFile = false
     var foreign by mutableStateOf<ForeignBackup?>(null)
     var progress by mutableStateOf<String?>(null)
+    val events = mutableStateListOf<BackupEvent>()
 
+    // Set by BackupHost each composition: the system pickers belong to the current activity.
     internal var enable: () -> Unit = {}
     internal var openFile: () -> Unit = {}
     internal var exportArchive: () -> Unit = {}
-    internal var openAutoFile: (Uri?) -> Unit = {}
-    internal var keepForeign: () -> Unit = {}
-    internal var restoreAll: () -> Unit = {}
-    internal var importSelected: (Map<String, ImportMode>) -> Unit = {}
 
-    fun show(archive: BackupArchive, autoFile: Boolean) {
-        closeArchive()
-        this.archive = archive
-        archiveIsAutoFile = autoFile
+    private fun message(text: String) { events += BackupEvent.Message(text) }
+
+    private suspend fun <T> busy(text: String, block: suspend () -> T): T {
+        progress = text
+        try { return block() } finally { progress = null }
     }
 
-    fun shownFromAutoFile() = archiveIsAutoFile
-
-    fun closeArchive() {
+    private fun setArchive(opened: BackupArchive?, autoFile: Boolean) {
         archive?.close()
-        archive = null
-        archiveIsAutoFile = false
+        val wasAutoFile = archiveIsAutoFile
+        archive = opened
+        archiveIsAutoFile = opened != null && autoFile
+        if (wasAutoFile && !archiveIsAutoFile) backup.resume()
+    }
+
+    fun closeArchive() = setArchive(null, autoFile = false)
+
+    fun openArchive(uri: Uri, autoFile: Boolean, lang: Lang) = scope.launch {
+        try {
+            if (autoFile) backup.pause()
+            val opened = busy(lang.tr("Otwieranie kopii…", "Opening the backup…")) { withContext(Dispatchers.IO) { BackupArchive.open(context, uri) } }
+            setArchive(opened, autoFile)
+            sheet = false
+            foreign = null
+            events += BackupEvent.Browse
+        } catch (error: Exception) {
+            if (autoFile && !archiveIsAutoFile) backup.resume()
+            message(if (error is NotABackupException) lang.tr("To nie jest plik kopii Wizualizatora ramy albo jest uszkodzony.", "This is not a Frame visualizer backup file, or it is damaged.")
+                else lang.tr("Nie można otworzyć kopii: ", "Cannot open the backup: ") + (error.message ?: ""))
+        }
+    }
+
+    fun openAutoFile(known: Uri?, lang: Lang) = scope.launch {
+        val uri = known ?: backup.backupFileUri()
+        if (uri == null) message(lang.tr("W folderze nie ma jeszcze kopii.", "There is no backup in the folder yet.")) else openArchive(uri, autoFile = true, lang)
+    }
+
+    fun connect(tree: Uri, lang: Lang) = scope.launch {
+        try {
+            when (val result = busy(lang.tr("Sprawdzanie folderu…", "Checking the folder…")) { backup.connect(tree) }) {
+                AutoBackup.Connection.Fresh, AutoBackup.Connection.Ours -> message(lang.tr("Kopia automatyczna włączona.", "Automatic backup is on."))
+                is AutoBackup.Connection.Foreign -> {
+                    val info = withContext(Dispatchers.IO) { runCatching { BackupArchive.open(context, result.file).use { it.info } }.getOrNull() }
+                    foreign = ForeignBackup(result.file, info)
+                }
+            }
+        } catch (error: Exception) {
+            message(lang.tr("Nie można użyć tego folderu: ", "Cannot use this folder: ") + (error.message ?: ""))
+        }
+    }
+
+    fun export(uri: Uri, lang: Lang) = scope.launch {
+        message(try {
+            busy(lang.tr("Zapisywanie archiwum…", "Saving the archive…")) { backup.exportArchive(uri, lang) }
+            lang.tr("Archiwum zapisane. Na komputerze rozpakuj je i otwórz index.html.", "Archive saved. On a computer, unpack it and open index.html.")
+        } catch (error: Exception) {
+            lang.tr("Błąd archiwum: ", "Archive error: ") + (error.message ?: lang.tr("nieznany błąd", "unknown error"))
+        })
+    }
+
+    fun keepForeign(lang: Lang) = scope.launch {
+        val info = foreign?.info
+        val ok = busy(lang.tr("Zmiana nazwy starej kopii…", "Renaming the old backup…")) { backup.keepForeignAsArchive(info?.createdAt) }
+        foreign = null
+        message(if (ok) lang.tr("Stara kopia została w folderze jako archiwum. Zaczynam nową.", "The old backup stays in the folder as an archive. Starting a new one.")
+            else lang.tr("Nie udało się zmienić nazwy starej kopii.", "Could not rename the old backup."))
+    }
+
+    fun restoreAll(lang: Lang) {
+        val opened = archive ?: return
+        val autoFile = archiveIsAutoFile
+        scope.launch {
+            try {
+                val (projects, photos) = busy(lang.tr("Przywracanie projektów…", "Restoring projects…")) {
+                    withContext(Dispatchers.IO) {
+                        var photos = 0
+                        opened.projects.forEach { project -> photos += store.importProject(project) { opened.photoBytes(project.id, it) } }
+                        opened.restoreSettings(settings)
+                        opened.projects.size to photos
+                    }
+                }
+                val info = opened.info
+                val complete = projects == info.listedProjects && photos == info.listedPhotos
+                // Taking the backup file over makes it a mirror of the phone; only a complete restore may do that,
+                // or whatever could not be read would be erased from the only copy that still has it.
+                if (autoFile && complete) backup.adopt(info)
+                closeArchive()
+                events += BackupEvent.Restored
+                if (!complete) message(lang.tr("Przywrócono ${photoCount(photos, lang)} z ${info.listedPhotos} — część kopii jest uszkodzona. ", "Restored ${photoCount(photos, lang)} of ${info.listedPhotos} — part of the backup is damaged. ") +
+                    if (autoFile) lang.tr("Kopia automatyczna nie nadpisze tego pliku.", "The automatic backup will not overwrite this file.") else "")
+            } catch (error: Exception) {
+                events += BackupEvent.Refresh
+                message(lang.tr("Błąd przywracania: ", "Restore error: ") + (error.message ?: ""))
+            }
+        }
+    }
+
+    fun importSelected(choices: Map<String, ImportMode>, lang: Lang) {
+        val opened = archive ?: return
+        scope.launch {
+            try {
+                val photos = busy(lang.tr("Wgrywanie projektów…", "Loading projects…")) {
+                    withContext(Dispatchers.IO) {
+                        opened.projects.filter { it.id in choices }.sumOf { project ->
+                            BackupImport.import(store, opened, project, store.get(project.id), choices.getValue(project.id), lang)
+                        }
+                    }
+                }
+                closeArchive()
+                events += BackupEvent.Refresh
+                events += BackupEvent.LeaveBrowse
+                message(lang.tr("Wgrano: ", "Loaded: ") + lang.count(choices.size, "projekt", "projekty", "projektów", "project", "projects") + ", " + photoCount(photos, lang) + ".")
+            } catch (error: Exception) {
+                events += BackupEvent.Refresh
+                message(lang.tr("Błąd wgrywania: ", "Loading error: ") + (error.message ?: ""))
+            }
+        }
+    }
+
+    companion object {
+        @Volatile private var instance: BackupController? = null
+        fun get(context: Context): BackupController = instance ?: synchronized(this) {
+            instance ?: BackupController(context.applicationContext).also { instance = it }
+        }
     }
 }
 
 internal data class ForeignBackup(val file: Uri, val info: BackupInfo?)
 
 /**
- * Owns the system pickers and the long-running backup actions, and draws the backup dialogs. Placed once in the
- * app so a picker's result still arrives after the sheet that launched it has closed.
+ * The system pickers and the backup dialogs. Placed once in the app so a picker's result still arrives after the
+ * sheet that launched it has closed.
  */
 @Composable
-internal fun BackupHost(store: ProjectStore, settings: SharedPreferences, hasProjects: Boolean, onRefresh: () -> Unit, onMessage: (String) -> Unit,
-                        onBrowse: () -> Unit, onLeaveBrowse: () -> Unit, onRestored: () -> Unit): BackupController {
+internal fun BackupHost(hasProjects: Boolean): BackupController {
     val context = LocalContext.current
     val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-    val controller = remember { BackupController(AutoBackup.get(context)) }
-    val backup = controller.backup
+    val controller = remember { BackupController.get(context) }
 
-    suspend fun <T> busy(text: String, block: suspend () -> T): T {
-        controller.progress = text
-        try { return block() } finally { controller.progress = null }
-    }
-
-    fun openArchive(uri: Uri, autoFile: Boolean) = scope.launch {
-        try {
-            val archive = busy(lang.tr("Otwieranie kopii…", "Opening the backup…")) { withContext(Dispatchers.IO) { BackupArchive.open(context, uri) } }
-            controller.show(archive, autoFile)
-            controller.sheet = false
-            controller.foreign = null
-            onBrowse()
-        } catch (error: Exception) {
-            onMessage(if (error is NotABackupException) lang.tr("To nie jest plik kopii Wizualizatora ramy.", "This is not a Frame visualizer backup file.")
-                else lang.tr("Nie można otworzyć kopii: ", "Cannot open the backup: ") + (error.message ?: ""))
-        }
-    }
-
-    val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) scope.launch {
-            try {
-                when (val result = busy(lang.tr("Sprawdzanie folderu…", "Checking the folder…")) { backup.connect(uri) }) {
-                    AutoBackup.Connection.Fresh, AutoBackup.Connection.Ours -> onMessage(lang.tr("Kopia automatyczna włączona.", "Automatic backup is on."))
-                    is AutoBackup.Connection.Foreign -> {
-                        val info = withContext(Dispatchers.IO) { runCatching { BackupArchive.open(context, result.file).use { it.info } }.getOrNull() }
-                        controller.foreign = ForeignBackup(result.file, info)
-                    }
-                }
-            } catch (error: Exception) {
-                onMessage(lang.tr("Nie można użyć tego folderu: ", "Cannot use this folder: ") + (error.message ?: ""))
-            }
-        }
-    }
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) openArchive(uri, autoFile = false) }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) scope.launch {
-            onMessage(try {
-                busy(lang.tr("Zapisywanie archiwum…", "Saving the archive…")) { backup.exportArchive(uri, lang) }
-                lang.tr("Archiwum zapisane. Na komputerze rozpakuj je i otwórz index.html.", "Archive saved. On a computer, unpack it and open index.html.")
-            } catch (error: Exception) {
-                lang.tr("Błąd archiwum: ", "Archive error: ") + (error.message ?: lang.tr("nieznany błąd", "unknown error"))
-            })
-        }
-    }
-
+    val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> if (uri != null) controller.connect(uri, lang) }
+    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) controller.openArchive(uri, autoFile = false, lang) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if (uri != null) controller.export(uri, lang) }
     controller.enable = { treeLauncher.launch(AutoBackup.documentsUri) }
     controller.openFile = { openLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*")) }
     controller.exportArchive = { exportLauncher.launch("wizualizator_${SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(Date())}.zip") }
-    controller.openAutoFile = { known ->
-        scope.launch {
-            val uri = known ?: backup.backupFileUri()
-            if (uri == null) onMessage(lang.tr("W folderze nie ma jeszcze kopii.", "There is no backup in the folder yet.")) else openArchive(uri, autoFile = true)
-        }
-    }
-    controller.keepForeign = {
-        val info = controller.foreign?.info
-        scope.launch {
-            val ok = busy(lang.tr("Zmiana nazwy starej kopii…", "Renaming the old backup…")) { backup.keepForeignAsArchive(info?.createdAt) }
-            controller.foreign = null
-            onMessage(if (ok) lang.tr("Stara kopia została w folderze jako archiwum. Zaczynam nową.", "The old backup stays in the folder as an archive. Starting a new one.")
-                else lang.tr("Nie udało się zmienić nazwy starej kopii.", "Could not rename the old backup."))
-        }
-    }
-    controller.restoreAll = {
-        val archive = controller.archive
-        if (archive != null) scope.launch {
-            try {
-                busy(lang.tr("Przywracanie projektów…", "Restoring projects…")) {
-                    withContext(Dispatchers.IO) {
-                        archive.projects.forEach { project -> store.importProject(project) { archive.photoBytes(project.id, it) } }
-                        archive.restoreSettings(settings)
-                    }
-                }
-                if (controller.shownFromAutoFile()) backup.adopt(archive.info)
-                controller.closeArchive()
-                onRestored()
-            } catch (error: Exception) {
-                onRefresh()
-                onMessage(lang.tr("Błąd przywracania: ", "Restore error: ") + (error.message ?: ""))
-            }
-        }
-    }
-    controller.importSelected = { choices ->
-        val archive = controller.archive
-        if (archive != null) scope.launch {
-            try {
-                val photos = busy(lang.tr("Wgrywanie projektów…", "Loading projects…")) {
-                    withContext(Dispatchers.IO) {
-                        archive.projects.filter { it.id in choices }.sumOf { project ->
-                            BackupImport.import(store, archive, project, store.get(project.id), choices.getValue(project.id), lang)
-                        }
-                    }
-                }
-                onRefresh()
-                controller.closeArchive()
-                onLeaveBrowse()
-                onMessage(lang.tr("Wgrano: ", "Loaded: ") + lang.count(choices.size, "projekt", "projekty", "projektów", "project", "projects") + ", " + photoCount(photos, lang) + ".")
-            } catch (error: Exception) {
-                onRefresh()
-                onMessage(lang.tr("Błąd wgrywania: ", "Loading error: ") + (error.message ?: ""))
-            }
-        }
-    }
 
-    val status by backup.status.collectAsState()
+    val status by controller.backup.status.collectAsState()
     if (controller.sheet) BackupSheet(controller, status, onDismiss = { controller.sheet = false })
     controller.foreign?.let { found -> ForeignBackupDialog(controller, found, hasProjects) }
     controller.progress?.let { text ->
@@ -218,8 +248,8 @@ private fun ForeignBackupDialog(controller: BackupController, found: ForeignBack
                 else tr("W folderze jest plik backup.zip, którego nie da się odczytać jako kopii. Kopia automatyczna go nie nadpisze.",
                     "The folder holds a backup.zip that cannot be read as a backup. The automatic backup will not overwrite it."))
                 if (info != null) StudioAction(if (hasProjects) tr("Przejrzyj i wybierz", "Browse and choose") else tr("Przejrzyj i przywróć", "Browse and restore"),
-                    StudioSymbol.Download, { controller.openAutoFile(found.file) }, Modifier.fillMaxWidth())
-                StudioAction(tr("Zachowaj ją i zacznij nową", "Keep it and start a new one"), StudioSymbol.Archive, controller.keepForeign, Modifier.fillMaxWidth(), secondary = true)
+                    StudioSymbol.Download, { controller.openAutoFile(found.file, lang) }, Modifier.fillMaxWidth())
+                StudioAction(tr("Zachowaj ją i zacznij nową", "Keep it and start a new one"), StudioSymbol.Archive, { controller.keepForeign(lang) }, Modifier.fillMaxWidth(), secondary = true)
             }
         },
         confirmButton = { TextButton(onClick = { controller.foreign = null }) { Text(tr("Później", "Later")) } },
@@ -308,8 +338,8 @@ private fun BackupSheet(controller: BackupController, status: AutoBackup.Status,
                 AutoBackup.Mode.Blocked -> {
                     Hint(tr("W folderze ${status.folder} jest kopia z innej instalacji. Kopia automatyczna jej nie nadpisze — przejrzyj ją albo zachowaj jako archiwum i zacznij nową.",
                         "The folder ${status.folder} holds a backup from another install. The automatic backup will not overwrite it — browse it, or keep it as an archive and start a new one."), warning = true)
-                    StudioAction(tr("Przejrzyj tę kopię", "Browse this backup"), StudioSymbol.Download, { controller.openAutoFile(null) }, Modifier.fillMaxWidth())
-                    StudioAction(tr("Zachowaj ją i zacznij nową", "Keep it and start a new one"), StudioSymbol.Archive, controller.keepForeign, Modifier.fillMaxWidth(), secondary = true)
+                    StudioAction(tr("Przejrzyj tę kopię", "Browse this backup"), StudioSymbol.Download, { controller.openAutoFile(null, lang) }, Modifier.fillMaxWidth())
+                    StudioAction(tr("Zachowaj ją i zacznij nową", "Keep it and start a new one"), StudioSymbol.Archive, { controller.keepForeign(lang) }, Modifier.fillMaxWidth(), secondary = true)
                 }
                 AutoBackup.Mode.On -> {
                     InfoRow(tr("Folder", "Folder"), status.folder)
@@ -332,7 +362,7 @@ private fun BackupSheet(controller: BackupController, status: AutoBackup.Status,
                         StudioAction(tr("Zapisz teraz", "Save now"), StudioSymbol.Check, { backup.requestSync(0) }, Modifier.weight(1f), enabled = !status.running, secondary = true)
                         StudioAction(tr("Zmień folder", "Change folder"), StudioSymbol.Folder, controller.enable, Modifier.weight(1f), secondary = true)
                     }
-                    StudioAction(tr("Przejrzyj kopię automatyczną", "Browse the automatic backup"), StudioSymbol.Download, { controller.openAutoFile(null) }, Modifier.fillMaxWidth(), secondary = true)
+                    StudioAction(tr("Przejrzyj kopię automatyczną", "Browse the automatic backup"), StudioSymbol.Download, { controller.openAutoFile(null, lang) }, Modifier.fillMaxWidth(), secondary = true)
                     TextButton(onClick = { confirmDisable = true }) { Text(tr("Wyłącz kopię automatyczną", "Turn off automatic backup"), color = colors.error) }
                 }
             }

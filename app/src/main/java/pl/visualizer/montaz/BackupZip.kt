@@ -22,6 +22,8 @@ interface RandomAccess : Closeable {
     fun read(position: Long, buffer: ByteArray, offset: Int = 0, length: Int = buffer.size)
     fun write(position: Long, buffer: ByteArray, offset: Int = 0, length: Int = buffer.size)
     fun truncate(size: Long)
+    /** Forces written bytes to storage, so a power cut cannot leave a directory pointing at unwritten data. */
+    fun sync() {}
 }
 
 class FileRandomAccess(file: File, writable: Boolean) : RandomAccess {
@@ -36,6 +38,7 @@ class FileRandomAccess(file: File, writable: Boolean) : RandomAccess {
         raf.write(buffer, offset, length)
     }
     override fun truncate(size: Long) = raf.setLength(size)
+    override fun sync() = raf.fd.sync()
     override fun close() = raf.close()
 }
 
@@ -144,8 +147,13 @@ object ZipReader {
     private const val MAX_32 = 0xFFFFFFFFL
 
     /** Members listed by the central directory, or — when the tail is damaged — found by walking the local headers. */
-    fun entries(file: RandomAccess): List<ZipEntryInfo> =
-        try { directory(file) } catch (error: IOException) { scan(file).ifEmpty { throw error } }
+    fun entries(file: RandomAccess): List<ZipEntryInfo> = load(file).entries
+
+    class Loaded(val entries: List<ZipEntryInfo>, val recovered: Boolean)
+
+    /** Like [entries], and says whether the members came from a scan — then their content is not to be trusted unchecked. */
+    fun load(file: RandomAccess): Loaded =
+        try { Loaded(directory(file), recovered = false) } catch (error: IOException) { Loaded(scan(file).ifEmpty { throw error }, recovered = true) }
 
     fun directory(file: RandomAccess): List<ZipEntryInfo> {
         val size = file.size
@@ -195,6 +203,9 @@ object ZipReader {
             }
             val local = ByteArray(30).also { file.read(offset, it) }
             if (le32(local, 0) != 0x04034b50L) throw ZipFormatException("Broken local header: $name")
+            // After an interrupted compaction an old offset can hold another member's header; the name tells.
+            val localName = ByteArray(le16(local, 26)).also { file.read(offset + 30, it) }
+            if (!localName.contentEquals(directory.copyOfRange(at + 46, at + 46 + nameLength))) throw ZipFormatException("Directory does not match: $name")
             val dataOffset = offset + 30 + le16(local, 26) + le16(local, 28)
             result += ZipEntryInfo(name, offset, dataOffset, compressed, plain, crc, method, time, date)
             at = extraEnd + commentLength
@@ -225,6 +236,15 @@ object ZipReader {
 
     /** The member's content; stored and deflated members (an archive re-packed on a computer) are both read. */
     fun read(file: RandomAccess, entry: ZipEntryInfo): ByteArray {
+        val data = readUnchecked(file, entry)
+        if (CRC32().apply { update(data) }.value != entry.crc) throw ZipFormatException("Damaged entry (CRC): ${entry.name}")
+        return data
+    }
+
+    /** Whether the member's content matches its checksum. */
+    fun intact(file: RandomAccess, entry: ZipEntryInfo) = runCatching { read(file, entry) }.isSuccess
+
+    private fun readUnchecked(file: RandomAccess, entry: ZipEntryInfo): ByteArray {
         if (entry.size > Int.MAX_VALUE || entry.compressedSize > Int.MAX_VALUE) throw ZipFormatException("Entry too large: ${entry.name}")
         val raw = ByteArray(entry.compressedSize.toInt()).also { file.read(entry.dataOffset, it) }
         return when (entry.method) {
@@ -273,53 +293,64 @@ object ZipUpdater {
     internal const val COMPACT_MIN_BYTES = 32L * 1024 * 1024
 
     /**
-     * Brings [file] in line with [photos] and [meta]: photos already present stay where they are, new ones are
-     * appended, and the metadata, directory and end record are rewritten after the last photo. Deleted photos drop
-     * out of the directory; their bytes are reclaimed by sliding later photos down once they waste enough space.
-     * An unreadable or foreign file is simply rewritten from the start.
+     * Brings [file] in line with [photos]: photos already present stay where they are and new ones are appended.
+     * Order matters for crash safety — [head] (the manifest and project files, a few kilobytes) is written right
+     * after the kept photos, before any new photo, so even an update cut short by a killed process leaves a file
+     * that identifies itself and restores (by scanning); [tail] (the overview page) and the directory come last.
+     * Deleted photos drop out of the directory; their bytes are reclaimed by sliding later photos down once they
+     * waste enough space. An unreadable file is rewritten from the start — the caller decides whether it may be.
      */
-    fun update(file: RandomAccess, photos: List<ZipPhoto>, meta: List<Pair<String, ByteArray>>, compactMinBytes: Long = COMPACT_MIN_BYTES): ZipUpdateResult {
-        val wanted = photos.associateBy { it.name }
-        val existing = if (file.size == 0L) emptyList() else runCatching { ZipReader.entries(file) }.getOrDefault(emptyList())
-        var kept = existing
+    fun update(file: RandomAccess, photos: List<ZipPhoto>, head: List<Pair<String, ByteArray>>, tail: List<Pair<String, ByteArray>>,
+               compactMinBytes: Long = COMPACT_MIN_BYTES): ZipUpdateResult {
+        val unique = photos.distinctBy { it.name }
+        val wanted = unique.associateBy { it.name }
+        val loaded = if (file.size == 0L) null else runCatching { ZipReader.load(file) }.getOrNull()
+        var kept = (loaded?.entries ?: emptyList())
             .filter { entry -> entry.method == 0 && wanted[entry.name]?.length == entry.size }
             .distinctBy { it.name }
             .sortedBy { it.offset }
+        // Members found by a scan (the directory was missing or wrong) are kept only if their checksum holds.
+        if (loaded?.recovered == true) kept = kept.filter { ZipReader.intact(file, it) }
         // Kept photos must not overlap; anything odd (a hand-edited archive) is rewritten instead of trusted.
         if (kept.zipWithNext().any { (a, b) -> b.offset < a.end } || kept.firstOrNull()?.offset?.let { it < 0 } == true) kept = emptyList()
         val keptEnd = kept.lastOrNull()?.end ?: 0L
         val live = kept.sumOf { it.end - it.offset }
         val compacted = keptEnd - live >= compactMinBytes && (keptEnd - live) * 4 >= keptEnd
-        if (compacted) kept = slideDown(file, kept)
+        if (compacted) {
+            kept = slideDown(file, kept)
+            file.sync()
+        }
         val sink = RandomSink(file, kept.lastOrNull()?.end ?: 0L)
-        // Truncate first: the new tail is written over a shorter file, never interleaved with the old one.
         file.truncate(sink.position)
-        val have = kept.map { it.name }.toSet()
         val entries = kept.toMutableList()
+        for ((name, data) in head) entries += ZipWriter.writeEntry(sink, name, data)
+        val have = kept.map { it.name }.toSet()
         val missing = mutableListOf<String>()
         var appended = 0
-        for (photo in photos) {
+        for (photo in unique) {
             if (photo.name in have) continue
             val data = photo.read()
             if (data == null) { missing += photo.name; continue }
             entries += ZipWriter.writeEntry(sink, photo.name, data, photo.modified)
             appended++
         }
-        // Photos keep the archive order they were written in; the directory lists them before the metadata.
-        for ((name, data) in meta) entries += ZipWriter.writeEntry(sink, name, data)
+        for ((name, data) in tail) entries += ZipWriter.writeEntry(sink, name, data)
+        file.sync()
         ZipWriter.writeDirectory(sink, entries)
+        file.sync()
         return ZipUpdateResult(sink.position, appended, compacted, missing)
     }
 
-    /** One-off archive for a stream (manual export): photos, then metadata, then the directory. */
-    fun write(sink: ZipSink, photos: List<ZipPhoto>, meta: List<Pair<String, ByteArray>>): List<String> {
+    /** One-off archive for a stream (manual export), in the same order as [update]. */
+    fun write(sink: ZipSink, photos: List<ZipPhoto>, head: List<Pair<String, ByteArray>>, tail: List<Pair<String, ByteArray>>): List<String> {
         val entries = mutableListOf<ZipEntryInfo>()
         val missing = mutableListOf<String>()
-        for (photo in photos) {
+        for ((name, data) in head) entries += ZipWriter.writeEntry(sink, name, data)
+        for (photo in photos.distinctBy { it.name }) {
             val data = photo.read()
             if (data == null) missing += photo.name else entries += ZipWriter.writeEntry(sink, photo.name, data, photo.modified)
         }
-        for ((name, data) in meta) entries += ZipWriter.writeEntry(sink, name, data)
+        for ((name, data) in tail) entries += ZipWriter.writeEntry(sink, name, data)
         ZipWriter.writeDirectory(sink, entries)
         return missing
     }

@@ -37,7 +37,12 @@ object BackupFormat {
     const val SETTINGS = "visualizer_settings"
 }
 
-data class BackupInfo(val backupId: String, val createdAt: Long, val appVersion: String, val auto: Boolean, val projectCount: Int, val photoCount: Int)
+/**
+ * [projectCount] and [photoCount] are what could be read; [listedProjects] and [listedPhotos] what the manifest says
+ * the backup holds — a difference means a damaged backup.
+ */
+data class BackupInfo(val backupId: String, val createdAt: Long, val appVersion: String, val auto: Boolean, val projectCount: Int, val photoCount: Int,
+                      val listedProjects: Int = projectCount, val listedPhotos: Int = photoCount)
 
 /** What a backup of the current state is made of; built fresh for every write. */
 internal class BackupContent(private val store: ProjectStore, private val projects: List<Project>, private val settings: SharedPreferences, private val backupId: String, private val auto: Boolean, private val lang: Lang) {
@@ -52,12 +57,14 @@ internal class BackupContent(private val store: ProjectStore, private val projec
         }
     }
 
-    /** Small files rewritten on every update; the overview goes last so it reflects everything above it. */
-    fun meta(): List<Pair<String, ByteArray>> = buildList {
+    /** What a restore needs, written before new photos so an interrupted update still identifies itself. */
+    fun head(): List<Pair<String, ByteArray>> = buildList {
         add(BackupFormat.MANIFEST to manifest().toString(1).toByteArray(Charsets.UTF_8))
         projects.forEach { add(BackupFormat.projectPath(it.id) to ProjectStore.toJson(it).toString(1).toByteArray(Charsets.UTF_8)) }
-        add(BackupFormat.INDEX to BackupIndex.html(projects, createdAt, lang).toByteArray(Charsets.UTF_8))
     }
+
+    /** The overview page, written last so it reflects everything above it. */
+    fun tail(): List<Pair<String, ByteArray>> = listOf(BackupFormat.INDEX to BackupIndex.html(projects, createdAt, lang).toByteArray(Charsets.UTF_8))
 
     private fun manifest() = JSONObject().apply {
         put("format", BackupFormat.VERSION)
@@ -214,6 +221,7 @@ internal class FdRandomAccess(private val pfd: ParcelFileDescriptor) : RandomAcc
         while (done < length) done += Os.pwrite(fd, buffer, offset + done, length - done, position + done)
     }
     override fun truncate(size: Long) = Os.ftruncate(fd, size)
+    override fun sync() = Os.fsync(fd)
     override fun close() = pfd.close()
 
     companion object {
@@ -299,18 +307,22 @@ class BackupArchive private constructor(
             if (manifest.optInt("format", 0) !in 1..BackupFormat.VERSION) throw NotABackupException()
             val listed = manifest.optJSONArray("projects") ?: JSONArray()
             val projects = (0 until listed.length()).mapNotNull { index ->
-                val id = listed.getJSONObject(index).getString("id")
+                val id = listed.getJSONObject(index).optString("id")
+                if (!ProjectStore.validId(id)) return@mapNotNull null
                 entries[BackupFormat.projectPath(id)]?.let { entry ->
                     runCatching { ProjectStore.fromJson(JSONObject(ZipReader.read(access, entry).toString(Charsets.UTF_8))) }.getOrNull()
-                }
+                }?.takeIf { it.id == id }
             }.sortedByDescending { it.createdAt }
+            val listedPhotos = (0 until listed.length()).sumOf { listed.getJSONObject(it).optInt("photos", 0) }
             val info = BackupInfo(
                 backupId = manifest.optString("backupId"),
                 createdAt = manifest.optLong("createdAt"),
                 appVersion = manifest.optString("appVersion"),
                 auto = manifest.optString("kind") == "auto",
                 projectCount = projects.size,
-                photoCount = projects.sumOf { it.photos.size },
+                photoCount = projects.sumOf { project -> project.photos.count { photo -> BackupFormat.photoPath(project.id, photo.fileName) in entries } },
+                listedProjects = listed.length(),
+                listedPhotos = listedPhotos,
             )
             val cache = File(context.cacheDir, "backup_browse/${UUID.randomUUID()}").apply { mkdirs() }
             return BackupArchive(access, entries, info, projects, manifest.optJSONObject("settings") ?: JSONObject(), cache, temp)

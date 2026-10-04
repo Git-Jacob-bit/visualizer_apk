@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,6 +74,7 @@ class AutoBackup private constructor(private val context: Context) {
     private val mutex = Mutex()
     private var pending: Job? = null
     @Volatile private var dirty = false
+    @Volatile private var paused = false
     private val _status = MutableStateFlow(storedStatus())
     val status: StateFlow<Status> = _status.asStateFlow()
 
@@ -102,19 +104,21 @@ class AutoBackup private constructor(private val context: Context) {
         dismissedLevel = state.getInt(KEY_DISMISSED, 0),
     )
 
-    private fun publish(update: (Status) -> Status = { it }) {
-        _status.value = update(storedStatus().copy(running = _status.value.running, problem = _status.value.problem,
-            problemDetail = _status.value.problemDetail, lowSpace = _status.value.lowSpace))
+    /** Re-reads the persisted part of the status, keeping the live part (running, problem, low space). */
+    private fun publish() = _status.update { live ->
+        storedStatus().copy(running = live.running, problem = live.problem, problemDetail = live.problemDetail, lowSpace = live.lowSpace)
     }
 
-    /** Schedules an update; repeated changes within the delay collapse into one write. */
+    /** Schedules an update; repeated changes within the delay collapse into one write. Called from any thread. */
     fun requestSync(delayMillis: Long = DEBOUNCE_MILLIS) {
         if (_status.value.mode != Mode.On) return
         dirty = true
-        pending?.cancel()
-        pending = scope.launch {
-            delay(delayMillis)
-            sync()
+        synchronized(this) {
+            pending?.cancel()
+            pending = scope.launch {
+                delay(delayMillis)
+                sync()
+            }
         }
     }
 
@@ -123,34 +127,47 @@ class AutoBackup private constructor(private val context: Context) {
         if (dirty && _status.value.mode == Mode.On) requestSync(0)
     }
 
+    /**
+     * Holds back writes while the app reads the backup file itself (browsing or restoring it): an update would move
+     * the data under the open archive. Waits for a running update to finish first.
+     */
+    suspend fun pause() = mutex.withLock { paused = true }
+
+    fun resume() {
+        paused = false
+        flush()
+    }
+
     private suspend fun sync() = mutex.withLock {
-        if (_status.value.mode != Mode.On) return@withLock
+        if (_status.value.mode != Mode.On || paused) return@withLock
         dirty = false
-        _status.value = _status.value.copy(running = true)
+        _status.update { it.copy(running = true) }
         try {
             val tree = treeUri() ?: return@withLock
+            // Read the projects first: if one cannot be read, nothing is written rather than mirroring it as deleted.
+            val projects = store.allStrict()
             val file = backupFile(tree, create = true) ?: throw SecurityException("Backup folder unavailable")
             val pfd = resolver.openFileDescriptor(file, "rw") ?: throw SecurityException("Cannot open backup file")
             val size = FdRandomAccess(pfd).use { access ->
-                val existingId = if (access.size > 0) BackupArchive.peekId(access) else null
-                if (existingId != null && existingId != backupId) {
-                    // Someone put another backup here since the folder was chosen: stop and let the user decide.
+                // Only an empty file or one carrying this install's id may be written. Anything else — another
+                // install's backup, a file still being copied in, one that cannot be read — waits for the user.
+                if (access.size > 0 && BackupArchive.peekId(access) != backupId) {
                     state.edit().putBoolean(KEY_FOREIGN, true).apply()
                     return@withLock
                 }
-                val content = BackupContent(store, store.all(), settings, backupId, auto = true, Lang.fromCode(settings.getString("language", null)) ?: Lang.system())
-                ZipUpdater.update(access, content.photos, content.meta()).size
+                val content = BackupContent(store, projects, settings, backupId, auto = true, Lang.fromCode(settings.getString("language", null)) ?: Lang.system())
+                ZipUpdater.update(access, content.photos, content.head(), content.tail()).size
             }
             state.edit().putLong(KEY_LAST, System.currentTimeMillis()).putLong(KEY_SIZE, size).apply()
-            _status.value = _status.value.copy(problem = null, problemDetail = "", lowSpace = freeBytes() < LOW_SPACE_BYTES)
+            _status.update { it.copy(problem = null, problemDetail = "", lowSpace = freeBytes() < LOW_SPACE_BYTES) }
         } catch (error: SecurityException) {
             dirty = true
-            _status.value = _status.value.copy(problem = Problem.NoAccess, problemDetail = error.message.orEmpty())
+            _status.update { it.copy(problem = Problem.NoAccess, problemDetail = error.message.orEmpty()) }
         } catch (error: Exception) {
             dirty = true
-            _status.value = _status.value.copy(problem = Problem.Failed, problemDetail = error.message ?: error.javaClass.simpleName)
+            _status.update { it.copy(problem = Problem.Failed, problemDetail = error.message ?: error.javaClass.simpleName) }
         } finally {
-            _status.value = _status.value.copy(running = false)
+            _status.update { it.copy(running = false) }
             publish()
         }
     }
@@ -162,7 +179,8 @@ class AutoBackup private constructor(private val context: Context) {
             treeUri()?.takeIf { it != tree }?.let { old -> runCatching { resolver.releasePersistableUriPermission(old, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             val label = rootId.substringAfter(':').trim('/').let { path -> if (path.substringAfterLast('/') == FOLDER) path else listOf(path, FOLDER).filter(String::isNotEmpty).joinToString("/") }
-            state.edit().putString(KEY_TREE, tree.toString()).putString(KEY_FOLDER, label).putBoolean(KEY_FOREIGN, false).apply()
+            // Blocked until the folder's content is known, so a failure below never leaves an unchecked folder writable.
+            state.edit().putString(KEY_TREE, tree.toString()).putString(KEY_FOLDER, label).putBoolean(KEY_FOREIGN, true).commit()
             val file = backupFile(tree, create = false)
             val existing = file?.let { uri -> resolver.openFileDescriptor(uri, "r")?.let(::FdRandomAccess)?.use { if (it.size == 0L) null else BackupArchive.peekId(it) ?: "" } }
             val result = when {
@@ -170,8 +188,8 @@ class AutoBackup private constructor(private val context: Context) {
                 existing == backupId -> Connection.Ours
                 else -> Connection.Foreign(file)
             }
-            if (result is Connection.Foreign) state.edit().putBoolean(KEY_FOREIGN, true).apply()
-            _status.value = _status.value.copy(problem = null, problemDetail = "")
+            if (result !is Connection.Foreign) state.edit().putBoolean(KEY_FOREIGN, false).apply()
+            _status.update { it.copy(problem = null, problemDetail = "") }
             publish()
             result
         }.also { if (it !is Connection.Foreign) requestSync(0) }
@@ -205,11 +223,16 @@ class AutoBackup private constructor(private val context: Context) {
         renamed
     }
 
+    /** Stops the automatic backup after any running update; the file stays in the folder. */
     fun disable() {
-        pending?.cancel()
-        treeUri()?.let { runCatching { resolver.releasePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
-        state.edit().remove(KEY_TREE).remove(KEY_FOLDER).remove(KEY_FOREIGN).remove(KEY_LAST).remove(KEY_SIZE).remove(KEY_DISMISSED).apply()
-        _status.value = Status()
+        synchronized(this) { pending?.cancel() }
+        scope.launch {
+            mutex.withLock {
+                treeUri()?.let { runCatching { resolver.releasePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
+                state.edit().remove(KEY_TREE).remove(KEY_FOLDER).remove(KEY_FOREIGN).remove(KEY_LAST).remove(KEY_SIZE).remove(KEY_DISMISSED).apply()
+                _status.value = Status()
+            }
+        }
     }
 
     fun dismissSizeWarning() {
@@ -221,8 +244,8 @@ class AutoBackup private constructor(private val context: Context) {
     suspend fun exportArchive(uri: Uri, lang: Lang) = withContext(Dispatchers.IO) {
         val output = resolver.openOutputStream(uri) ?: error(lang.tr("Nie można otworzyć pliku docelowego.", "Cannot open the target file."))
         output.buffered().use { stream ->
-            val content = BackupContent(store, store.all(), settings, UUID.randomUUID().toString(), auto = false, lang)
-            ZipUpdater.write(StreamSink(stream), content.photos, content.meta())
+            val content = BackupContent(store, store.allStrict(), settings, UUID.randomUUID().toString(), auto = false, lang)
+            ZipUpdater.write(StreamSink(stream), content.photos, content.head(), content.tail())
         }
     }
 

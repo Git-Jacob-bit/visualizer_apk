@@ -19,7 +19,8 @@ class BackupZipTest {
         return ZipPhoto(name, size.toLong(), 0L) { data } to data
     }
 
-    private fun meta(version: String) = listOf("backup.json" to """{"v":"$version"}""".toByteArray(), "index.html" to "<p>ąę $version</p>".toByteArray())
+    private fun head(version: String) = listOf("backup.json" to """{"v":"$version"}""".toByteArray())
+    private fun tail(version: String) = listOf("index.html" to "<p>ąę $version</p>".toByteArray())
 
     /** What a computer sees: the JDK's own ZIP reader must list and read every member. */
     private fun standardContents(file: File): Map<String, ByteArray> = ZipFile(file).use { zip ->
@@ -27,7 +28,7 @@ class BackupZipTest {
     }
 
     private fun update(file: File, photos: List<ZipPhoto>, version: String, compactMin: Long = ZipUpdater.COMPACT_MIN_BYTES) =
-        FileRandomAccess(file, writable = true).use { ZipUpdater.update(it, photos, meta(version), compactMin) }
+        FileRandomAccess(file, writable = true).use { ZipUpdater.update(it, photos, head(version), tail(version), compactMin) }
 
     @Test fun freshArchiveIsReadableByStandardZip() {
         val file = temp.newFile("backup.zip")
@@ -97,14 +98,62 @@ class BackupZipTest {
         // Simulate a crash right after the tail was cut: no metadata, no directory.
         val bEnd = FileRandomAccess(file, false).use { ZipReader.directory(it).first { it.name == b.name }.end }
         FileRandomAccess(file, true).use { it.truncate(bEnd) }
-        val recovered = FileRandomAccess(file, false).use { ZipReader.entries(it) }
-        assertEquals(listOf(a.name, b.name), recovered.map { it.name })
-        assertArrayEquals(aData, FileRandomAccess(file, false).use { ZipReader.read(it, recovered[0]) })
+        val recovered = FileRandomAccess(file, false).use { ZipReader.entries(it) }.associateBy { it.name }
+        // The manifest is written before the photos, so recovery still finds it.
+        assertEquals(setOf("backup.json", a.name, b.name), recovered.keys)
+        assertArrayEquals(aData, FileRandomAccess(file, false).use { ZipReader.read(it, recovered.getValue(a.name)) })
         var reads = 0
         val result = update(file, listOf(ZipPhoto(a.name, a.length, 0L) { reads++; aData }, b), "2")
         assertEquals(0, reads)
         assertEquals(0, result.appended)
         assertEquals(4, standardContents(file).size)
+    }
+
+    @Test fun updateKilledWhileAddingPhotosStillIdentifiesItself() {
+        val file = temp.newFile("backup.zip")
+        val (a, aData) = photo("projekty/p1/a.jpg", 5000)
+        update(file, listOf(a), "1")
+        // The process dies while reading the new photo: no directory is written, but the manifest already is.
+        val dying = ZipPhoto("projekty/p1/b.jpg", 6000, 0L) { throw IllegalStateException("killed") }
+        runCatching { update(file, listOf(a, dying), "2") }
+        FileRandomAccess(file, false).use { access ->
+            val found = ZipReader.entries(access).associateBy { it.name }
+            assertEquals("""{"v":"2"}""", ZipReader.read(access, found.getValue("backup.json")).toString(Charsets.UTF_8))
+            assertArrayEquals(aData, ZipReader.read(access, found.getValue(a.name)))
+        }
+        // The next update heals it into a complete archive.
+        val (b, bData) = photo("projekty/p1/b.jpg", 6000)
+        update(file, listOf(a, b), "3")
+        assertArrayEquals(bData, standardContents(file).getValue(b.name))
+    }
+
+    @Test fun damagedPhotoIsDetectedAndRewritten() {
+        val file = temp.newFile("backup.zip")
+        val (a, aData) = photo("projekty/p1/a.jpg", 5000)
+        update(file, listOf(a), "1")
+        val entry = FileRandomAccess(file, false).use { ZipReader.directory(it).first { it.name == a.name } }
+        // Flip one data byte and cut the directory off, as an interrupted compaction could.
+        FileRandomAccess(file, true).use { access ->
+            val one = ByteArray(1).also { access.read(entry.dataOffset + 100, it) }
+            one[0] = (one[0] + 1).toByte()
+            access.write(entry.dataOffset + 100, one)
+            access.truncate(entry.end)
+        }
+        FileRandomAccess(file, false).use { access ->
+            assertFalse(ZipReader.intact(access, ZipReader.entries(access).first { it.name == a.name }))
+        }
+        var reads = 0
+        update(file, listOf(ZipPhoto(a.name, a.length, 0L) { reads++; aData }), "2")
+        assertEquals("a damaged recovered photo is written again", 1, reads)
+        assertArrayEquals(aData, standardContents(file).getValue(a.name))
+    }
+
+    @Test fun duplicatePhotoNamesAreWrittenOnce() {
+        val file = temp.newFile("backup.zip")
+        val (a, _) = photo("projekty/p1/a.jpg", 5000)
+        update(file, listOf(a, a), "1")
+        val names = FileRandomAccess(file, false).use { ZipReader.directory(it).map { e -> e.name } }
+        assertEquals(1, names.count { it == a.name })
     }
 
     @Test fun garbageFileIsRewritten() {
@@ -140,7 +189,7 @@ class BackupZipTest {
     @Test fun streamedArchiveMatchesStandardZip() {
         val file = temp.newFile("archive.zip")
         val (a, aData) = photo("projekty/p1/a.jpg", 5000)
-        file.outputStream().use { ZipUpdater.write(StreamSink(it), listOf(a), meta("1")) }
+        file.outputStream().use { ZipUpdater.write(StreamSink(it), listOf(a), head("1"), tail("1")) }
         assertArrayEquals(aData, standardContents(file).getValue(a.name))
     }
 
