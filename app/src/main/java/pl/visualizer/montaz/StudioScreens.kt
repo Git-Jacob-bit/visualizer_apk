@@ -118,7 +118,8 @@ private fun Greeting(projects: List<Project>) {
 }
 
 @Composable
-internal fun ModernProjectsScreen(projects: List<Project>, store: ProjectStore, darkTheme: Boolean, onToggleTheme: () -> Unit, onToggleLanguage: () -> Unit, onPrinter: () -> Unit, onAbout: () -> Unit, suggestPrinter: Boolean, onCreate: () -> Unit, onOpen: (String) -> Unit) {
+internal fun ModernProjectsScreen(projects: List<Project>, store: ProjectStore, darkTheme: Boolean, onToggleTheme: () -> Unit, onToggleLanguage: () -> Unit, onPrinter: () -> Unit, onAbout: () -> Unit, suggestPrinter: Boolean,
+                                  backupStatus: AutoBackup.Status, onBackup: () -> Unit, onArchive: () -> Unit, onDismissBackupWarning: () -> Unit, onCreate: () -> Unit, onOpen: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val lang = LocalLang.current
     TutorialTour("projects", Tours.projects(lang))
@@ -128,10 +129,17 @@ internal fun ModernProjectsScreen(projects: List<Project>, store: ProjectStore, 
     Column(Modifier.fillMaxSize()) {
         BrandTopBar(darkTheme, onToggleTheme, onToggleLanguage, onPrinter, onAbout)
         Greeting(projects)
+        BackupStrip(backupStatus, onBackup, onArchive, onDismissBackupWarning)
         if (projects.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 StudioEmpty(tr("Miejsce na pierwszy projekt", "Room for your first project"),
                     tr("Zbierz zdjęcia montażowe w jednym miejscu.\nOd pomiaru do gotowego arkusza.", "Keep assembly photos in one place.\nFrom measuring to a ready sheet."))
+                // After a reinstall the old projects are one folder pick away.
+                TextButton(onClick = onBackup) {
+                    StudioIcon(StudioSymbol.Download, Modifier.size(18.dp), colors.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr("Masz kopię zapasową? Przywróć projekty", "Have a backup? Restore your projects"), color = colors.primary)
+                }
             }
         } else {
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {

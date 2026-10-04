@@ -28,6 +28,14 @@ internal data class ReleaseNote(val title: String, val text: String)
 internal data class Release(val version: String, val code: Int, val date: String, val notes: List<ReleaseNote>)
 
 internal fun changelog(lang: Lang): List<Release> = listOf(
+    Release("0.12.0", 14, "2026-10-04", listOf(
+        ReleaseNote(lang.tr("Kopia automatyczna", "Automatic backup"),
+            lang.tr("Projekty, zdjęcia i ustawienia mogą zapisywać się same po każdej zmianie, w jednym pliku Documents/wizualizator_ram_backup_auto/backup.zip. Włączysz ją z paska pod powitaniem albo w oknie O aplikacji → Kopia zapasowa. Po ponownej instalacji wskaż ten sam folder, a projekty wrócą.",
+                "Projects, photos and settings can save themselves after every change, in one file: Documents/wizualizator_ram_backup_auto/backup.zip. Turn it on from the strip under the greeting or in About → Backup. After reinstalling, pick the same folder and your projects come back.")),
+        ReleaseNote(lang.tr("Archiwum i przegląd kopii", "Archives and browsing backups"),
+            lang.tr("„Zrób archiwum” zapisuje osobną kopię z datą, np. do przeniesienia na komputer — tam po rozpakowaniu index.html pokazuje wszystkie projekty w przeglądarce. Starą kopię możesz w aplikacji przejrzeć i wgrać tylko wybrane projekty; nic, co już jest w aplikacji, nie zostanie nadpisane. Gdy kopia przekroczy 1 GB, aplikacja to podpowie.",
+                "“Make archive” saves a separate dated copy, e.g. to move to a computer — once unpacked there, index.html shows every project in a browser. You can browse an old backup in the app and load only the projects you choose; nothing already in the app is overwritten. The app tells you when the backup passes 1 GB.")),
+    )),
     Release("0.11.0", 13, "2026-10-04", listOf(
         ReleaseNote(lang.tr("Eksport do Excela", "Excel export"),
             lang.tr("Przycisk Eksportuj w projekcie zapisze wycinankę PDF albo plik Excel z wizualizacjami: pusty szablon kroków z numerami z projektu (plus bloki „Montaż przewodu”) i arkusz ze wszystkimi zdjęciami na równych białych kwadratach, z PN i krokiem pod spodem — gotowe do wklejenia.",

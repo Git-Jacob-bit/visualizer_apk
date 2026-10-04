@@ -28,8 +28,9 @@ android {
         applicationId = "pl.visualizer.montaz"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.11.0"
+        versionCode = 14
+        versionName = "0.12.0"
+        manifestPlaceholders["appLabel"] = "Wizualizator ramy"
     }
 
     signingConfigs {
@@ -42,6 +43,13 @@ android {
     }
 
     buildTypes {
+        // A debug build is its own app next to the release one: different signatures can never collide, so
+        // switching between them never forces an uninstall that would wipe the projects.
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "Wizualizator ramy (debug)"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
@@ -90,4 +98,5 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

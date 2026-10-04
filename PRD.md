@@ -129,7 +129,7 @@ Na start potrzebne są też: telefon z aparatem obsługiwany przez CameraX, komp
 - Czy PN zawsze ma dokładnie 10 cyfr, także wtedy, gdy zaczyna się od zera? Dokument zakłada, że tak, dlatego jest traktowany jako tekst.
 - Czy oznaczenia muszą znajdować się **wewnątrz** zmierzonego obszaru zdjęcia? Dokument zakłada, że tak.
 - Czy zdjęcia mogą być poziome i pionowe oraz czy obrót telefonu podczas fotografowania ma być dozwolony? Dokument zakłada oba warianty.
-- Czy wymagane jest przywracanie projektu po odinstalowaniu lub zmianie telefonu? W MVP nie ma kopii zapasowej projektu.
+- ~~Czy wymagane jest przywracanie projektu po odinstalowaniu lub zmianie telefonu?~~ Tak — od 0.12.0 kopia zapasowa (automatyczna w `Documents/wizualizator_ram_backup_auto/backup.zip` i ręczne archiwa ZIP) przywraca projekty, zdjęcia i ustawienia.
 
 ## Źródła techniczne
 
