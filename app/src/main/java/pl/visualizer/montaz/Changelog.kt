@@ -28,6 +28,14 @@ internal data class ReleaseNote(val title: String, val text: String)
 internal data class Release(val version: String, val code: Int, val date: String, val notes: List<ReleaseNote>)
 
 internal fun changelog(lang: Lang): List<Release> = listOf(
+    Release("0.11.0", 13, "2026-10-04", listOf(
+        ReleaseNote(lang.tr("Eksport do Excela", "Excel export"),
+            lang.tr("Przycisk Eksportuj w projekcie zapisze wycinankę PDF albo plik Excel z wizualizacjami: pusty szablon kroków z numerami z projektu (plus bloki „Montaż przewodu”) i arkusz ze wszystkimi zdjęciami na równych białych kwadratach, z PN i krokiem pod spodem — gotowe do wklejenia.",
+                "The Export button in a project saves the cut-out PDF or an Excel visualisation file: a blank step template with the project's step numbers (plus cable-assembly blocks) and a sheet with every photo on an equal white square, with its PN and step below — ready to paste.")),
+        ReleaseNote(lang.tr("Zdjęcia w ZIP", "Photos in a ZIP"),
+            lang.tr("Eksportuj → ZIP zapisuje każde zdjęcie osobno, w jego kadrze, z nazwą PN_nrKroku. Na życzenie z oznaczeniami PN i kroków jak na wycinance.",
+                "Export → ZIP saves every photo on its own, in its framing, named PN_step. On request with the PN and step labels as on the cut-out sheet.")),
+    )),
     Release("0.10.1", 12, "2026-10-02", listOf(
         ReleaseNote(lang.tr("Kolor PN: biały lub żółty", "PN colour: white or yellow"),
             lang.tr("Okienko PN może być teraz białe albo żółte. Zdjęcia, którym ustawiono inny kolor, wracają do białego.",

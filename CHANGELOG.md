@@ -8,6 +8,19 @@ Dodając wersję: wpisz zmiany tutaj i w `Changelog.kt`, podnieś `versionCode` 
 w `app/build.gradle.kts` (pole `code` w `Changelog.kt` musi być równe nowemu `versionCode`),
 a na koniec oznacz wydanie tagiem `v<versionName>`, który zbuduje podpisany APK na GitHubie.
 
+## 0.11.0 — 2026-10-04
+
+- **Eksport do Excela.** Przycisk PDF w galerii projektu zmienił się w **Eksportuj** z listą: „PDF – wycinanka”
+  (jak dotąd), „Excel – wizualizacje” albo „ZIP – same zdjęcia”. Plik .xlsx ma dwa arkusze. **wizualizacje** to pusty szablon kroków
+  w układzie arkusza wizualizacji (Poprzedni / Aktualny komponent, opis, żółte paski PN, Nr komponentu,
+  Nr czujnika, Nr kroku) z wpisanymi numerami kroków z projektu i trzema blokami zapasowymi, a na końcu pięć
+  pustych bloków „Montaż przewodu” (szerokie zdjęcie, instrukcja, jeden żółty pasek). **zdjęcia** zawiera
+  wszystkie zdjęcia projektu ułożone po kroku, każde na identycznym białym kwadracie (kadr z edytora, bez przycinania),
+  z PN i krokiem pod spodem, gotowe do skopiowania do szablonu.
+- **Zdjęcia w ZIP.** „ZIP – same zdjęcia” zapisuje każde zdjęcie jako osobny JPEG w kadrze z edytora (bez
+  dopełniania), z nazwą `PN_nrKroku.jpg`. Przed zapisem aplikacja pyta, czy na zdjęciach mają być widoczne
+  oznaczenia PN i kroków (takie jak na wycinance).
+
 ## 0.10.1 — 2026-10-02
 
 - **Kolor PN: biały lub żółty.** Wybór koloru okienka PN ograniczony do białego i żółtego (tego samego co

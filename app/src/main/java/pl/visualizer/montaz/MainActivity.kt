@@ -185,6 +185,8 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
     var showDeleteProject by remember { mutableStateOf(false) }
     var showDeletePhoto by remember { mutableStateOf(false) }
     var exportProject by remember { mutableStateOf<Project?>(null) }
+    var askZipLabels by remember { mutableStateOf(false) }
+    var zipLabels by remember { mutableStateOf(false) }
     var printProfile by remember { mutableStateOf(PrintProfile.load(settings)) }
     var showPrinter by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -225,6 +227,42 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
                     lang.tr("PDF zapisany. Drukuj w skali 100%.", "PDF saved. Print at 100% scale.")
                 } catch (error: Exception) {
                     lang.tr("Błąd PDF: ", "PDF error: ") + (if (error is UnreadablePhotoException) lang.tr("nie można odczytać jednego ze zdjęć.", "one of the photos cannot be read.") else error.message ?: lang.tr("nieznany błąd", "unknown error"))
+                }
+            }
+        }
+    }
+
+    val xlsxLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
+        val selected = exportProject
+        if (uri != null && selected != null) {
+            scope.launch {
+                message = lang.tr("Tworzenie pliku Excel…", "Creating the Excel file…")
+                message = try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { XlsxExporter.export(selected, store, it, lang) }
+                            ?: error(lang.tr("Nie można otworzyć pliku docelowego.", "Cannot open the target file."))
+                    }
+                    lang.tr("Plik Excel zapisany.", "Excel file saved.")
+                } catch (error: Exception) {
+                    lang.tr("Błąd Excela: ", "Excel error: ") + (if (error is UnreadablePhotoException) lang.tr("nie można odczytać jednego ze zdjęć.", "one of the photos cannot be read.") else error.message ?: lang.tr("nieznany błąd", "unknown error"))
+                }
+            }
+        }
+    }
+
+    val zipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val selected = exportProject
+        if (uri != null && selected != null) {
+            scope.launch {
+                message = lang.tr("Pakowanie zdjęć…", "Packing the photos…")
+                message = try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { ZipExporter.export(selected, store, it, zipLabels, lang) }
+                            ?: error(lang.tr("Nie można otworzyć pliku docelowego.", "Cannot open the target file."))
+                    }
+                    lang.tr("Archiwum ZIP zapisane.", "ZIP archive saved.")
+                } catch (error: Exception) {
+                    lang.tr("Błąd ZIP: ", "ZIP error: ") + (if (error is UnreadablePhotoException) lang.tr("nie można odczytać jednego ze zdjęć.", "one of the photos cannot be read.") else error.message ?: lang.tr("nieznany błąd", "unknown error"))
                 }
             }
         }
@@ -286,13 +324,18 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
                                 onBack = ::back,
                                 onAdd = { route = DIMENSIONS; message = "" },
                                 onEdit = { photoId = it; newPhoto = false; route = EDIT; message = "" },
-                                onExport = {
+                                onExportPdf = {
                                     try {
                                         PdfExporter.layout(project, lang)
                                         exportProject = project
                                         pdfLauncher.launch("${safeFileName(project.name, lang)}_${lang.tr("wycinanka", "cutout")}.pdf")
                                     } catch (error: Exception) { message = error.message ?: lang.tr("Nie można przygotować PDF.", "Cannot prepare the PDF.") }
                                 },
+                                onExportXlsx = {
+                                    exportProject = project
+                                    xlsxLauncher.launch("${safeFileName(project.name, lang)}_${lang.tr("wizualizacje", "visualisations")}.xlsx")
+                                },
+                                onExportZip = { exportProject = project; askZipLabels = true },
                                 onDelete = { showDeleteProject = true },
                                 onRename = { name -> store.rename(project.id, name); refresh() },
                                 onPrinter = { showPrinter = true },
@@ -374,6 +417,22 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
             text = { Text(tr("Zdjęcia i dane projektu zostaną trwale usunięte z telefonu.", "The project's photos and data will be permanently deleted from the phone.")) },
             confirmButton = { TextButton(onClick = { store.delete(project.id); refresh(); showDeleteProject = false; route = PROJECTS }) { Text(tr("Usuń", "Delete"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { showDeleteProject = false }) { Text(tr("Anuluj", "Cancel")) } },
+        )
+    }
+    if (askZipLabels && project != null) {
+        fun pack(labels: Boolean) {
+            askZipLabels = false
+            zipLabels = labels
+            zipLauncher.launch("${safeFileName(project.name, lang)}_${lang.tr("zdjecia", "photos")}.zip")
+        }
+        AlertDialog(
+            onDismissRequest = { askZipLabels = false },
+            icon = { StudioIcon(StudioSymbol.Photo) },
+            title = { Text(tr("PN i nr kroku na zdjęciach?", "PN and step on the photos?")) },
+            text = { Text(tr("Każde zdjęcie trafi do archiwum w swoim kadrze, z nazwą PN_nrKroku. Oznaczenia mogą być widoczne na zdjęciach tak jak na wycinance.",
+                "Each photo goes into the archive in its own framing, named PN_step. The labels can be shown on the photos just like on the cut-out sheet.")) },
+            confirmButton = { TextButton(onClick = { pack(true) }) { Text(tr("Tak, z oznaczeniami", "Yes, with labels")) } },
+            dismissButton = { TextButton(onClick = { pack(false) }) { Text(tr("Nie, bez oznaczeń", "No, without labels")) } },
         )
     }
     if (showDeletePhoto && project != null && photo != null) {

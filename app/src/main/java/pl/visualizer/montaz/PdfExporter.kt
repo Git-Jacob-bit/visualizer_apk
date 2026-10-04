@@ -22,7 +22,7 @@ import kotlin.math.max
 object PdfExporter {
     private const val PAGE_W = 595f // A4 in PostScript points
     private const val PAGE_H = 842f
-    private fun pt(mm: Float) = mm * 72f / 25.4f
+    internal fun pt(mm: Float) = mm * 72f / 25.4f
     private val margin = pt(12f)
     private val contentTop = pt(40f)
     private val contentBottom = PAGE_H - pt(14f)
@@ -33,7 +33,7 @@ object PdfExporter {
     private val gapY = pt(5f)
     private val ink = Color.rgb(32, 35, 31)
     private val grey = Color.rgb(102, 107, 97)
-    private val stepsYellow = Color.rgb(255, 211, 48)
+    internal val stepsYellow = Color.rgb(255, 211, 48)
 
     data class Placement(val photo: PhotoItem, val box: RectF, val number: Int)
 
@@ -204,7 +204,7 @@ object PdfExporter {
         }
     }
 
-    private fun drawLabel(canvas: Canvas, text: String, photoBox: RectF, corner: String, scale: Float, background: Int, lang: Lang) {
+    internal fun drawLabel(canvas: Canvas, text: String, photoBox: RectF, corner: String, scale: Float, background: Int, lang: Lang) {
         val paint = labelPaint(text, photoBox, scale, lang).apply { color = labelTextColor(background) }
         val padding = labelPadding(paint.textSize)
         val width = paint.measureText(text) + 2 * padding

@@ -186,16 +186,17 @@ private fun ProjectCover(project: Project, store: ProjectStore, modifier: Modifi
 }
 
 @Composable
-internal fun ModernProjectScreen(project: Project, store: ProjectStore, onBack: () -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit, onExport: () -> Unit, onDelete: () -> Unit, onRename: (String) -> Unit, onPrinter: () -> Unit) {
+internal fun ModernProjectScreen(project: Project, store: ProjectStore, onBack: () -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit, onExportPdf: () -> Unit, onExportXlsx: () -> Unit, onExportZip: () -> Unit, onDelete: () -> Unit, onRename: (String) -> Unit, onPrinter: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
     var newName by remember(project.id) { mutableStateOf(project.name) }
     val lang = LocalLang.current
     val pageCount = remember(project) { runCatching { PdfExporter.layout(project).size }.getOrNull() }
     TutorialTour("project", Tours.project(lang))
     SmartHint("hint.pdf", project.photos.size >= 2, TutorialStep("project.pdf", tr("Gotowe do druku?", "Ready to print?"),
-        tr("Zapisz PDF i drukuj w skali 100%, bez dopasowania do strony. Linijką 50 mm w nagłówku arkusza sprawdzisz skalę.",
-            "Save the PDF and print at 100% scale, without fit to page. The 50 mm ruler in the sheet header lets you check the scale.")))
+        tr("Eksportuj → PDF i drukuj w skali 100%, bez dopasowania do strony. Linijką 50 mm w nagłówku arkusza sprawdzisz skalę.",
+            "Export → PDF and print at 100% scale, without fit to page. The 50 mm ruler in the sheet header lets you check the scale.")))
     Column(Modifier.fillMaxSize()) {
         StudioTopBar(onBack) {
             HelpButton("project", Tours.project(lang))
@@ -230,7 +231,14 @@ internal fun ModernProjectScreen(project: Project, store: ProjectStore, onBack: 
             }
         }
         StudioDock {
-            StudioAction("PDF", StudioSymbol.Print, onExport, Modifier.weight(0.85f).tutorialTarget("project.pdf"), enabled = project.photos.isNotEmpty(), secondary = true)
+            Box(Modifier.weight(1f)) {
+                StudioAction(tr("Eksportuj", "Export"), StudioSymbol.Print, { exportOpen = true }, Modifier.fillMaxWidth().tutorialTarget("project.pdf"), enabled = project.photos.isNotEmpty(), secondary = true)
+                DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
+                    DropdownMenuItem(text = { Text(tr("PDF – wycinanka", "PDF – cut-out sheet")) }, leadingIcon = { StudioIcon(StudioSymbol.Print) }, onClick = { exportOpen = false; onExportPdf() })
+                    DropdownMenuItem(text = { Text(tr("Excel – wizualizacje", "Excel – visualisations")) }, leadingIcon = { StudioIcon(StudioSymbol.Grid) }, onClick = { exportOpen = false; onExportXlsx() })
+                    DropdownMenuItem(text = { Text(tr("ZIP – same zdjęcia", "ZIP – photos only")) }, leadingIcon = { StudioIcon(StudioSymbol.Photo) }, onClick = { exportOpen = false; onExportZip() })
+                }
+            }
             StudioAction(tr("Dodaj zdjęcie", "Add photo"), StudioSymbol.Plus, onAdd, Modifier.weight(1.2f).tutorialTarget("project.add"))
         }
     }
