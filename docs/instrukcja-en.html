@@ -134,6 +134,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
   <a href="#printer">Printer</a>
   <a href="#pdf">Cut-out PDF and printing</a>
   <a href="#excel">Excel and ZIP export</a>
+  <a href="#backup">Backup</a>
   <a href="#language">Language</a>
   <a href="#about">About</a>
   <a href="#troubleshooting">Troubleshooting</a>
@@ -411,6 +412,43 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
   </div>
 </section>
 
+<section id="backup">
+  <div class="sec-head">
+    <h2>Backup</h2>
+    <p>Projects, photos and settings in one ZIP file — so nothing is lost when the app is reinstalled, the phone changes or storage runs out. Open it from the strip under the greeting on the project list or in <span class="ui">About → Backup</span>.</p>
+  </div>
+  <div class="text">
+    <h3>Automatic backup</h3>
+    <ul>
+      <li><span class="ui">Turn on automatic backup</span>: the phone asks for a folder. Stay in <b>Documents</b> (or open <b>wizualizator_ram_backup_auto</b>) and tap <span class="ui">Use this folder</span>. The app creates <b>Documents/wizualizator_ram_backup_auto</b> with a single file, <b>backup.zip</b>.</li>
+      <li>The backup updates itself a few seconds after every change, and at once when you leave the app. Only new photos are added, so even a large backup saves quickly. Deleted projects also leave the backup — it mirrors what is in the app.</li>
+      <li>The strip under the greeting shows when the backup was last saved and how big it is; it turns red when something needs attention (e.g. the app lost access to the folder — pick it again with <span class="ui">Change folder</span>).</li>
+      <li>When the backup passes <b>1 GB</b> (and every 500 MB after that) the app suggests an archive for a computer. The backup holds a second copy of every photo, so it takes space on the phone.</li>
+    </ul>
+    <h3>After reinstalling</h3>
+    <ul>
+      <li>On the empty project list tap <span class="ui">Have a backup? Restore your projects</span>, then <span class="ui">Turn on automatic backup</span> and pick the same folder.</li>
+      <li>The app shows the backup it found (date, number of projects and photos). <span class="ui">Browse and restore</span> → <span class="ui">Restore everything</span> brings back the projects and settings, and the automatic backup keeps updating the same file.</li>
+      <li>The automatic backup never overwrites a backup from another install (another phone, the debug build). You can browse it, or choose <span class="ui">Keep it and start a new one</span> — the old file stays in the folder as <b>backup_date.zip</b>.</li>
+    </ul>
+    <h3>Archive</h3>
+    <ul>
+      <li><span class="ui">Make archive</span> saves a separate copy with today's date (<b>wizualizator_YYYY-MM-DD.zip</b>) wherever you choose. An archive never changes — move it to a computer, then you can delete old projects from the phone.</li>
+    </ul>
+    <h3>Reading it on a computer</h3>
+    <ul>
+      <li>Backups and archives are ordinary ZIP files. Unpack the whole file (<b>Extract all</b>) and open <b>index.html</b> — the browser shows every project and photo in its framing, with the light correction and the PN and step labels. Clicking a photo opens the original.</li>
+      <li>The original photos are in the <b>projekty</b> folder; settings and project data are in <b>backup.json</b> and <b>project.json</b>.</li>
+    </ul>
+    <h3>Loading an old backup</h3>
+    <ul>
+      <li><span class="ui">Open a backup file</span> lists the projects in a backup or archive; tapping a project shows its photos. Each one says whether it is <b>not in the app</b>, <b>already in the app</b>, or the app has a <b>different version</b>.</li>
+      <li>Select projects and tap <span class="ui">Load selected</span>. A project whose version in the app differs comes in <span class="ui">As a new project</span> (marked “from backup”), or <span class="ui">Add missing</span> adds only the photos the app's project lacks. Nothing already in the app is overwritten.</li>
+      <li>When the app is empty, <span class="ui">Restore everything</span> brings back all projects together with the settings at once.</li>
+    </ul>
+  </div>
+</section>
+
 <section id="language">
   <div class="sec-head">
     <h2>Language</h2>
@@ -435,6 +473,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
       <ul>
         <li>The app version, with the build number in brackets, e.g. <b>0.8.0 (9)</b>.</li>
         <li><span class="ui">User manual</span> opens this manual in the app, also offline.</li>
+        <li><span class="ui">Backup</span> opens the <a href="#backup">automatic backup, archives and loading a backup</a>.</li>
         <li><span class="ui">Changelog</span> shows what each version added. After an update the same list appears once on its own, as the <span class="ui">What's new</span> sheet.</li>
         <li><span class="ui">In-app tips</span> turns explanations and hints on or off.</li>
         <li><span class="ui">Show tips again</span> makes every explanation appear again the next time you open each screen.</li>
@@ -461,7 +500,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
     <details><summary>The PDF will not generate</summary><div><p>The message says what is wrong. Usually a label is too long for a narrow photo; shorten the steps or increase the size. A photo larger than 190&nbsp;×&nbsp;269&nbsp;mm does not fit on A4.</p></div></details>
     <details><summary>Labels cover an important detail</summary><div><p>In the Layout tab move the PN or steps to another corner, make them smaller with the <span class="ui">Size</span> slider, or in the Framing tab move the photo so the detail is not in a corner.</p></div></details>
     <details><summary>Tips get in the way or have disappeared</summary><div><p>In About turn off <span class="ui">In-app tips</span> or tap <span class="ui">Show tips again</span>. The <span class="ui">?</span> button on every screen always works.</p></div></details>
-    <details><summary>Where are my projects and how do I keep them safe?</summary><div><p>Projects and photos are stored only in the app's storage on the phone. Uninstalling the app deletes them. Save the cut-out PDFs of finished projects to keep a copy.</p></div></details>
+    <details><summary>Where are my projects and how do I keep them safe?</summary><div><p>Projects and photos are stored in the app's storage on the phone, and uninstalling the app deletes them. Turn on the <a href="#backup">automatic backup</a> — the file <b>Documents/wizualizator_ram_backup_auto/backup.zip</b> survives an uninstall and restores everything after reinstalling. Now and then also make an archive for a computer.</p></div></details>
   </div>
 </section>
 

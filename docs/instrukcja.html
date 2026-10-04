@@ -134,6 +134,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
   <a href="#drukarka">Drukarka</a>
   <a href="#pdf">PDF i drukowanie</a>
   <a href="#excel">Eksport do Excela i ZIP</a>
+  <a href="#kopia">Kopia zapasowa</a>
   <a href="#jezyk">Język</a>
   <a href="#oaplikacji">O aplikacji</a>
   <a href="#problemy">Rozwiązywanie problemów</a>
@@ -413,6 +414,43 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
   </div>
 </section>
 
+<section id="kopia">
+  <div class="sec-head">
+    <h2>Kopia zapasowa</h2>
+    <p>Projekty, zdjęcia i ustawienia w jednym pliku ZIP — żeby nic nie zginęło przy ponownej instalacji aplikacji, zmianie telefonu albo braku miejsca. Otwórz ją paskiem pod powitaniem na liście projektów albo w <span class="ui">O aplikacji → Kopia zapasowa</span>.</p>
+  </div>
+  <div class="text">
+    <h3>Kopia automatyczna</h3>
+    <ul>
+      <li><span class="ui">Włącz kopię automatyczną</span>: telefon zapyta o folder. Zostań w <b>Documents</b> (albo wejdź do <b>wizualizator_ram_backup_auto</b>) i dotknij <span class="ui">Użyj tego folderu</span>. Aplikacja założy folder <b>Documents/wizualizator_ram_backup_auto</b> z jednym plikiem <b>backup.zip</b>.</li>
+      <li>Kopia aktualizuje się sama kilka sekund po każdej zmianie i od razu, gdy wychodzisz z aplikacji. Dopisywane są tylko nowe zdjęcia, więc nawet duża kopia zapisuje się szybko. Usunięte projekty znikają też z kopii — to lustro tego, co jest w aplikacji.</li>
+      <li>Pasek pod powitaniem pokazuje, kiedy kopia zapisała się ostatnio i ile waży; na czerwono, gdy coś wymaga uwagi (np. aplikacja straciła dostęp do folderu — wybierz go wtedy ponownie przyciskiem <span class="ui">Zmień folder</span>).</li>
+      <li>Gdy kopia przekroczy <b>1 GB</b> (i potem co 500 MB), aplikacja zaproponuje archiwum na komputer. Kopia zawiera drugi egzemplarz wszystkich zdjęć, więc zajmuje miejsce na telefonie.</li>
+    </ul>
+    <h3>Po ponownej instalacji</h3>
+    <ul>
+      <li>Na pustej liście projektów dotknij <span class="ui">Masz kopię zapasową? Przywróć projekty</span>, potem <span class="ui">Włącz kopię automatyczną</span> i wskaż ten sam folder.</li>
+      <li>Aplikacja pokaże znalezioną kopię (data, liczba projektów i zdjęć). <span class="ui">Przejrzyj i przywróć</span> → <span class="ui">Przywróć wszystko</span> przywraca projekty i ustawienia, a kopia automatyczna dalej aktualizuje ten sam plik.</li>
+      <li>Kopii z innej instalacji (innego telefonu, wersji debug) kopia automatyczna nigdy nie nadpisze. Możesz ją przejrzeć albo wybrać <span class="ui">Zachowaj ją i zacznij nową</span> — stary plik zostaje w folderze jako <b>backup_data.zip</b>.</li>
+    </ul>
+    <h3>Archiwum</h3>
+    <ul>
+      <li><span class="ui">Zrób archiwum</span> zapisuje osobną kopię z dzisiejszą datą (<b>wizualizator_RRRR-MM-DD.zip</b>) tam, gdzie wskażesz. Archiwum się nie zmienia — przenieś je na komputer, a potem możesz usunąć stare projekty z telefonu.</li>
+    </ul>
+    <h3>Odczyt na komputerze</h3>
+    <ul>
+      <li>Kopia i archiwum to zwykłe pliki ZIP. Rozpakuj cały plik (<b>Wyodrębnij wszystkie</b>) i otwórz <b>index.html</b> — przeglądarka pokaże wszystkie projekty i zdjęcia w kadrze, z korektą światła i oznaczeniami PN i kroków. Kliknięcie zdjęcia otwiera oryginał.</li>
+      <li>Oryginały zdjęć leżą w folderze <b>projekty</b>, a ustawienia i dane projektów w plikach <b>backup.json</b> i <b>project.json</b>.</li>
+    </ul>
+    <h3>Wgrywanie starej kopii</h3>
+    <ul>
+      <li><span class="ui">Otwórz plik kopii</span> pokazuje projekty z kopii lub archiwum; dotknięcie projektu rozwija jego zdjęcia. Przy każdym widać, czy go <b>nie ma w aplikacji</b>, czy <b>już jest</b>, czy w aplikacji jest <b>inna wersja</b>.</li>
+      <li>Zaznacz projekty i dotknij <span class="ui">Wgraj zaznaczone</span>. Projekt, który w aplikacji ma inną wersję, wejdzie <span class="ui">Jako nowy projekt</span> (z dopiskiem „z kopii”) albo <span class="ui">Dołącz brakujące</span> doda do obecnego tylko zdjęcia, których w nim nie ma. Nic, co jest w aplikacji, nie zostanie nadpisane.</li>
+      <li>Gdy aplikacja jest pusta, <span class="ui">Przywróć wszystko</span> przywraca od razu wszystkie projekty razem z ustawieniami.</li>
+    </ul>
+  </div>
+</section>
+
 <section id="jezyk">
   <div class="sec-head">
     <h2>Język</h2>
@@ -437,6 +475,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
       <ul>
         <li>Numer wersji aplikacji, w nawiasie numer kompilacji, np. <b>0.8.0 (9)</b>.</li>
         <li><span class="ui">Instrukcja obsługi</span> otwiera tę instrukcję w aplikacji, także bez internetu.</li>
+        <li><span class="ui">Kopia zapasowa</span> otwiera <a href="#kopia">kopię automatyczną, archiwum i wgrywanie kopii</a>.</li>
         <li><span class="ui">Historia zmian</span> pokazuje, co doszło w każdej wersji. Po aktualizacji aplikacji te same zmiany pojawiają się raz same, jako okno <span class="ui">Co nowego</span>.</li>
         <li><span class="ui">Wskazówki w aplikacji</span> włącza lub wyłącza objaśnienia i podpowiedzi.</li>
         <li><span class="ui">Pokaż wskazówki od nowa</span> sprawia, że wszystkie objaśnienia pojawią się ponownie przy kolejnym wejściu na ekrany.</li>
@@ -463,7 +502,7 @@ dialog button{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right
     <details><summary>PDF nie chce się utworzyć</summary><div><p>Komunikat mówi, co jest nie tak. Najczęściej oznaczenie jest za długie na wąskie zdjęcie; skróć kroki albo zwiększ wymiar. Zdjęcie większe niż 190&nbsp;×&nbsp;269&nbsp;mm nie zmieści się na A4.</p></div></details>
     <details><summary>Oznaczenia zasłaniają ważny detal</summary><div><p>W zakładce Układ przenieś PN lub kroki do innego narożnika, zmniejsz je suwakiem <span class="ui">Wielkość</span> albo w zakładce Kadr przesuń zdjęcie tak, by detal nie leżał w rogu.</p></div></details>
     <details><summary>Wskazówki przeszkadzają albo zniknęły</summary><div><p>W oknie O aplikacji wyłącz <span class="ui">Wskazówki w aplikacji</span> albo dotknij <span class="ui">Pokaż wskazówki od nowa</span>. Przycisk <span class="ui">?</span> na każdym ekranie działa zawsze.</p></div></details>
-    <details><summary>Gdzie są moje projekty i jak je zabezpieczyć?</summary><div><p>Projekty i zdjęcia są zapisane tylko w pamięci aplikacji na telefonie. Odinstalowanie aplikacji je usuwa. Zapisuj wycinanki PDF gotowych projektów, aby mieć ich kopię.</p></div></details>
+    <details><summary>Gdzie są moje projekty i jak je zabezpieczyć?</summary><div><p>Projekty i zdjęcia są zapisane w pamięci aplikacji na telefonie, a odinstalowanie aplikacji je usuwa. Włącz <a href="#kopia">kopię automatyczną</a> — plik <b>Documents/wizualizator_ram_backup_auto/backup.zip</b> zostaje po odinstalowaniu i po ponownej instalacji przywraca wszystko. Co jakiś czas zrób też archiwum na komputer.</p></div></details>
   </div>
 </section>
 

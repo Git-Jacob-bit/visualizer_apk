@@ -46,7 +46,8 @@ data class Project(
     val photos: List<PhotoItem> = emptyList(),
 )
 
-class ProjectStore(context: Context) {
+/** Projects on the phone. [onChange] fires after every write, which is what keeps the automatic backup current. */
+class ProjectStore(context: Context, private val onChange: () -> Unit = {}) {
     private val root = File(context.filesDir, "projects").apply { mkdirs() }
 
     fun all(): List<Project> = root.listFiles()
@@ -70,6 +71,26 @@ class ProjectStore(context: Context) {
     fun delete(id: String) {
         val dir = File(root, id)
         if (dir.parentFile == root) dir.deleteRecursively()
+        onChange()
+    }
+
+    /**
+     * Writes a project taken from a backup. Photo files that are not on the phone yet come from [readPhoto]; a photo
+     * it cannot supply is left out rather than saved without its file. Returns how many photos made it.
+     */
+    fun importProject(project: Project, readPhoto: (PhotoItem) -> ByteArray?): Int {
+        val dir = projectDir(project.id)
+        val photos = project.photos.filter { photo ->
+            val file = File(dir, photo.fileName)
+            if (file.parentFile != dir) return@filter false
+            file.exists() || readPhoto(photo)?.let { bytes ->
+                val partial = File(dir, photo.fileName + ".part")
+                partial.writeBytes(bytes)
+                partial.renameTo(file)
+            } == true
+        }
+        save(project.copy(photos = photos))
+        return photos.size
     }
 
     fun newCaptureFile(projectId: String): File {
@@ -100,7 +121,32 @@ class ProjectStore(context: Context) {
     private fun projectDir(id: String) = File(root, id).apply { mkdirs() }
 
     private fun save(project: Project) {
-        val json = JSONObject().apply {
+        synchronized(fileLock) {
+            val atomic = AtomicFile(File(projectDir(project.id), "project.json"))
+            val stream = atomic.startWrite()
+            try {
+                stream.write(toJson(project).toString().toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(stream)
+            } catch (error: Exception) {
+                atomic.failWrite(stream)
+                throw error
+            }
+        }
+        onChange()
+    }
+
+    private fun read(dir: File): Project = synchronized(fileLock) {
+        fromJson(JSONObject(AtomicFile(File(dir, "project.json")).openRead().bufferedReader().use { it.readText() }))
+    }
+
+    companion object {
+        // The backup reads projects on a background thread. Before Android 11 AtomicFile writes by moving the old
+        // file aside, and a read at that moment would put it back over the half-written one — so reads and writes
+        // of project.json never overlap, across every ProjectStore instance.
+        private val fileLock = Any()
+
+        /** The project.json format, shared with the backup so a project restores exactly as it was saved. */
+        fun toJson(project: Project): JSONObject = JSONObject().apply {
             put("id", project.id)
             put("name", project.name)
             put("createdAt", project.createdAt)
@@ -127,45 +173,35 @@ class ProjectStore(context: Context) {
                 }
             })
         }
-        val atomic = AtomicFile(File(projectDir(project.id), "project.json"))
-        val stream = atomic.startWrite()
-        try {
-            stream.write(json.toString().toByteArray(Charsets.UTF_8))
-            atomic.finishWrite(stream)
-        } catch (error: Exception) {
-            atomic.failWrite(stream)
-            throw error
-        }
-    }
 
-    private fun read(dir: File): Project {
-        val json = JSONObject(AtomicFile(File(dir, "project.json")).openRead().bufferedReader().use { it.readText() })
-        val photos = json.getJSONArray("photos")
-        return Project(
-            id = json.getString("id"),
-            name = json.getString("name"),
-            createdAt = json.getLong("createdAt"),
-            photos = (0 until photos.length()).map { index ->
-                val item = photos.getJSONObject(index)
-                PhotoItem(
-                    id = item.getString("id"),
-                    fileName = item.getString("fileName"),
-                    widthMm = item.getDouble("widthMm").toFloat(),
-                    heightMm = item.getDouble("heightMm").toFloat(),
-                    pn = item.optString("pn"),
-                    steps = item.optString("steps"),
-                    brightness = item.optDouble("brightness", 0.0).toFloat(),
-                    contrast = item.optDouble("contrast", 1.0).toFloat(),
-                    pnCorner = item.optString("pnCorner", "TL"),
-                    stepsCorner = item.optString("stepsCorner", "BR"),
-                    pnScale = item.optDouble("pnScale", 1.0).toFloat(),
-                    stepsScale = item.optDouble("stepsScale", 1.0).toFloat(),
-                    pnColor = item.optInt("pnColor", PN_LABEL_COLORS[0]).takeIf { it in PN_LABEL_COLORS } ?: PN_LABEL_COLORS[0],
-                    cropZoom = item.optDouble("cropZoom", 1.0).toFloat(),
-                    cropX = item.optDouble("cropX", 0.0).toFloat(),
-                    cropY = item.optDouble("cropY", 0.0).toFloat(),
-                )
-            },
-        )
+        fun fromJson(json: JSONObject): Project {
+            val photos = json.getJSONArray("photos")
+            return Project(
+                id = json.getString("id"),
+                name = json.getString("name"),
+                createdAt = json.getLong("createdAt"),
+                photos = (0 until photos.length()).map { index ->
+                    val item = photos.getJSONObject(index)
+                    PhotoItem(
+                        id = item.getString("id"),
+                        fileName = item.getString("fileName"),
+                        widthMm = item.getDouble("widthMm").toFloat(),
+                        heightMm = item.getDouble("heightMm").toFloat(),
+                        pn = item.optString("pn"),
+                        steps = item.optString("steps"),
+                        brightness = item.optDouble("brightness", 0.0).toFloat(),
+                        contrast = item.optDouble("contrast", 1.0).toFloat(),
+                        pnCorner = item.optString("pnCorner", "TL"),
+                        stepsCorner = item.optString("stepsCorner", "BR"),
+                        pnScale = item.optDouble("pnScale", 1.0).toFloat(),
+                        stepsScale = item.optDouble("stepsScale", 1.0).toFloat(),
+                        pnColor = item.optInt("pnColor", PN_LABEL_COLORS[0]).takeIf { it in PN_LABEL_COLORS } ?: PN_LABEL_COLORS[0],
+                        cropZoom = item.optDouble("cropZoom", 1.0).toFloat(),
+                        cropX = item.optDouble("cropX", 0.0).toFloat(),
+                        cropY = item.optDouble("cropY", 0.0).toFloat(),
+                    )
+                },
+            )
+        }
     }
 }

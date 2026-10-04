@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +78,7 @@ class MainActivity : ComponentActivity() {
             var lang by remember { mutableStateOf(Lang.fromCode(settings.getString("language", null)) ?: Lang.system()) }
             CompositionLocalProvider(LocalLang provides lang) {
                 MaterialTheme(colorScheme = animatedScheme(if (darkTheme) DarkColors else LightColors)) {
-                    val store = remember { ProjectStore(this@MainActivity) }
+                    val store = remember { ProjectStore(this@MainActivity) { AutoBackup.get(this@MainActivity).requestSync() } }
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         VisualizerApp(store, settings, darkTheme,
                             onToggleTheme = {
@@ -92,6 +93,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // Leaving the app writes the automatic backup at once instead of waiting for the debounce.
+    override fun onStop() {
+        super.onStop()
+        AutoBackup.get(this).flush()
     }
 }
 
@@ -157,7 +164,8 @@ private const val REVIEW = "review"
 private const val EDIT = "edit"
 private const val WELCOME = "welcome"
 private const val MANUAL = "manual"
-private val depth = mapOf(WELCOME to -1, MANUAL to 1, PROJECTS to 0, PROJECT to 1, DIMENSIONS to 2, CAMERA to 3, REVIEW to 4, EDIT to 5)
+private const val BACKUP = "backup"
+private val depth = mapOf(WELCOME to -1, MANUAL to 1, BACKUP to 1, PROJECTS to 0, PROJECT to 1, DIMENSIONS to 2, CAMERA to 3, REVIEW to 4, EDIT to 5)
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -209,6 +217,11 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
     }
 
     fun refresh() { projects = store.all() }
+    val backupUi = BackupHost(store, settings, hasProjects = projects.isNotEmpty(), onRefresh = ::refresh, onMessage = { message = it },
+        onBrowse = { route = BACKUP }, onLeaveBrowse = { route = PROJECTS },
+        // Settings (theme, language, printer) are read once at start, so a full restore restarts the screen.
+        onRestored = { route = PROJECTS; (context as? Activity)?.recreate() })
+    val backupStatus by backupUi.backup.status.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
     val photo = project?.photos?.firstOrNull { it.id == photoId }
 
@@ -291,13 +304,14 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
             CAMERA -> DIMENSIONS
             EDIT, DIMENSIONS -> PROJECT
             MANUAL -> PROJECTS
+            BACKUP -> { backupUi.closeArchive(); PROJECTS }
             else -> PROJECTS
         }
     }
     BackHandler(route != PROJECTS && route != WELCOME) { back() }
 
     val outerBackground by animateColorAsState(if (cameraRoute) CameraBlack else MaterialTheme.colorScheme.background, label = "outerBackground")
-    val snackbarLift by animateDpAsState(if (route == PROJECTS || route == PROJECT || route == DIMENSIONS) DockClearance else 24.dp, label = "snackbarLift")
+    val snackbarLift by animateDpAsState(if (route == PROJECTS || route == PROJECT || route == DIMENSIONS || route == BACKUP) DockClearance else 24.dp, label = "snackbarLift")
 
     CompositionLocalProvider(LocalTutorial provides tutorial) {
     Box(Modifier.fillMaxSize()) {
@@ -316,8 +330,13 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
                                 route = PROJECTS
                             }
                             MANUAL -> ManualScreen(onBack = ::back)
+                            BACKUP -> backupUi.archive?.let { archive ->
+                                BackupBrowseScreen(archive, projects, onBack = ::back, onRestoreAll = backupUi.restoreAll, onImport = backupUi.importSelected)
+                            } ?: LaunchedEffect(Unit) { route = PROJECTS }
                             PROJECTS -> ModernProjectsScreen(projects, store, darkTheme, onToggleTheme, onToggleLanguage, onPrinter = { showPrinter = true }, onAbout = { showAbout = true },
                                 suggestPrinter = exportedOnce && printProfile == PrintProfile(),
+                                backupStatus = backupStatus, onBackup = { backupUi.sheet = true }, onArchive = backupUi.exportArchive,
+                                onDismissBackupWarning = backupUi.backup::dismissSizeWarning,
                                 onCreate = { showCreate = true }, onOpen = { projectId = it; message = ""; route = PROJECT })
                             PROJECT -> if (project != null) ModernProjectScreen(
                                 project, store,
@@ -382,6 +401,7 @@ private fun VisualizerApp(store: ProjectStore, settings: android.content.SharedP
     if (showAbout) {
         CompositionLocalProvider(LocalTutorial provides tutorial) {
             AboutSheet(tutorial, onManual = { showAbout = false; route = MANUAL }, onChangelog = { showAbout = false; showHistory = true },
+                onBackup = { showAbout = false; backupUi.sheet = true },
                 onWelcome = { showAbout = false; route = WELCOME }, onDismiss = { showAbout = false })
         }
     }
