@@ -6,6 +6,8 @@ Repozytorium natywnej aplikacji Android do przygotowywania zdjęć kroków monta
 
 Gotowy, podpisany APK każdej wersji jest w [Releases](https://github.com/Git-Jacob-bit/visualizer_apk/releases/latest). Na telefonie pobierz plik `wizualizator-ramy-vX.Y.Z.apk`, otwórz go i zezwól na instalację z tego źródła. Aktualizacje wygodnie śledzi aplikacja [Obtainium](https://github.com/ImranR98/Obtainium) (dodaj adres tego repozytorium).
 
+Instrukcja instalacji krok po kroku ze zrzutami ekranu i kodem QR do tej strony: [docs/instalacja.html](docs/instalacja.html), gotowa do druku na A4 (4 strony): [docs/instalacja.pdf](docs/instalacja.pdf). PDF powstaje z pliku HTML (druk do PDF w Chrome, A4, z grafiką tła); po zmianie HTML trzeba go wygenerować ponownie.
+
 Wersja debug (z komputera lub artefakt workflow **Build**) ma własny identyfikator `pl.visualizer.montaz.debug` i nazwę „Wizualizator ramy (debug)”, więc instaluje się obok wersji z Releases — nie trzeba niczego odinstalowywać. Projekty obu wersji są osobne; przenosi się je kopią zapasową (O aplikacji → Kopia zapasowa).
 
 APK z Releases **nie aktualizuje się sam** — Android nie sprawdza wydań na GitHubie. Każdą nową wersję trzeba pobrać i zainstalować ręcznie albo pozwolić, żeby robiła to za Ciebie [Obtainium](https://github.com/ImranR98/Obtainium) (sprawdza Releases w tle i proponuje instalację). Kolejne wersje podpisane tym samym kluczem instalują się na wierzch, z zachowaniem projektów; po aktualizacji aplikacja raz pokazuje okno „Co nowego”.
