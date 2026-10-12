@@ -8,6 +8,12 @@ Dodając wersję: wpisz zmiany tutaj i w `Changelog.kt`, podnieś `versionCode` 
 w `app/build.gradle.kts` (pole `code` w `Changelog.kt` musi być równe nowemu `versionCode`),
 a na koniec oznacz wydanie tagiem `v<versionName>`, który zbuduje podpisany APK na GitHubie.
 
+## 0.12.1 — 2026-10-12
+
+- **Ostrzejsze zdjęcia w eksporcie do Excela.** Zdjęcia w arkuszu mają dwa razy większą rozdzielczość
+  (kwadrat 2000×2000 px zamiast 1000×1000) i wyższą jakość JPEG, więc po powiększeniu w Excelu nie tracą
+  już ostrości. Plik Excela jest przez to większy.
+
 ## 0.12.0 — 2026-10-04
 
 - **Kopia automatyczna.** Projekty, zdjęcia i wszystkie ustawienia zapisują się same w jednym pliku

@@ -28,6 +28,11 @@ internal data class ReleaseNote(val title: String, val text: String)
 internal data class Release(val version: String, val code: Int, val date: String, val notes: List<ReleaseNote>)
 
 internal fun changelog(lang: Lang): List<Release> = listOf(
+    Release("0.12.1", 15, "2026-10-12", listOf(
+        ReleaseNote(lang.tr("Ostrzejsze zdjęcia w Excelu", "Sharper photos in Excel"),
+            lang.tr("Zdjęcia w eksporcie do Excela mają dwa razy większą rozdzielczość i lepszą jakość, więc po powiększeniu w arkuszu zostają ostre. Plik jest przez to większy.",
+                "Photos in the Excel export have twice the resolution and better quality, so they stay sharp when enlarged in the sheet. The file is larger as a result.")),
+    )),
     Release("0.12.0", 14, "2026-10-04", listOf(
         ReleaseNote(lang.tr("Kopia automatyczna", "Automatic backup"),
             lang.tr("Projekty, zdjęcia i ustawienia mogą zapisywać się same po każdej zmianie, w jednym pliku Documents/wizualizator_ram_backup_auto/backup.zip. Włączysz ją z paska pod powitaniem albo w oknie O aplikacji → Kopia zapasowa. Po ponownej instalacji wskaż ten sam folder, a projekty wrócą.",
