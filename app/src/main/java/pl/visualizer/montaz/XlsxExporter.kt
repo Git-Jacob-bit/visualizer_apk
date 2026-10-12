@@ -11,7 +11,8 @@ import kotlin.math.max
 
 /** Visualisation workbook: a blank step template plus every photo on the same white square, ready to paste. */
 object XlsxExporter {
-    private const val SQUARE_PX = 1000
+    private const val SQUARE_PX = 2000
+    private const val JPEG_QUALITY = 95
     private const val SPARE_BLOCKS = 3
     private const val ASSEMBLY_BLOCKS = 5
     private val numberPattern = Regex("""\d+""")
@@ -64,7 +65,7 @@ object XlsxExporter {
             processed.recycle()
             if (cropped !== bitmap) cropped.recycle()
             return ByteArrayOutputStream().use { stream ->
-                canvasBitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
+                canvasBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)
                 stream.toByteArray()
             }
         } finally {
